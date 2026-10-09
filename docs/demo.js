@@ -154,6 +154,7 @@ function flashcards(course, unit) {
 /* ------------------------------------------------------------ overview --- */
 function overview() {
   state.code = null; state.unit = null; markNav(null);
+  window.scrollTo(0, 0);
   renderNav();
   const units = DATA.courses.reduce((n, c) => n + c.units.length, 0);
   const p = loadProgress();
@@ -205,6 +206,7 @@ function overview() {
 /* -------------------------------------------------------------- course --- */
 function courseView(code) {
   state.code = code; state.unit = null; markNav(code);
+  window.scrollTo(0, 0);
   const c = DATA.courses.find(x => x.code === code);
   const p = loadProgress();
   $('#content').innerHTML = `
@@ -240,6 +242,7 @@ function courseView(code) {
 /* ---------------------------------------------------------------- unit --- */
 function unitView(code, uid) {
   state.code = code; state.unit = uid; markNav(code);
+  window.scrollTo(0, 0);
   const c = DATA.courses.find(x => x.code === code);
   const u = c.units.find(x => x.id === uid);
   const idx = c.units.findIndex(x => x.id === uid) + 1;

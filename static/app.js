@@ -195,6 +195,7 @@ async function navigate(name, opts = {}) {
   if (name !== 'unit') state.view.unit = null;
   markActiveNav();
   $('#sidebar').classList.remove('open');
+  window.scrollTo(0, 0);
   const el = $('#content');
   el.innerHTML = `<div class="loading">Loading…</div>`;
   try {
