@@ -11,6 +11,17 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 const pctColor = p => p >= 70 ? 'var(--green)' : p >= 40 ? 'var(--amber)' : 'var(--red)';
 
+/* difficulty helpers (same ladder as the local app) */
+const LEVELS = { 1:{name:'Foundational',short:'Easy',cls:'lvl-1'}, 2:{name:'Intermediate',short:'Medium',cls:'lvl-2'}, 3:{name:'Advanced',short:'Hard',cls:'lvl-3'} };
+function lvlBadge(n){
+  const L = LEVELS[n] || LEVELS[2];
+  return `<span class="lvl ${L.cls}" title="${L.name}"><span class="lvl-dot">${[1,2,3].map(i=>`<i class="${i<=n?'on l'+i:''}"></i>`).join('')}</span>${L.short}</span>`;
+}
+const levelLegend = () => `<div class="level-legend">
+  <span>${lvlBadge(1)} ${LEVELS[1].name} — start here</span>
+  <span>${lvlBadge(2)} ${LEVELS[2].name} — apply the concept</span>
+  <span>${lvlBadge(3)} ${LEVELS[3].name} — multi-step / exam level</span></div>`;
+
 let DATA = { courses: [], quiz: {} };
 const state = { code: null, unit: null, user: null };
 
@@ -22,6 +33,10 @@ const saveUsers = u => localStorage.setItem(usersKey, JSON.stringify(u));
 const progressKey = () => 'tp_progress_' + (state.user || 'anon');
 const loadProgress = () => { try { return JSON.parse(localStorage.getItem(progressKey())) || {}; } catch { return {}; } };
 const saveProgress = p => localStorage.setItem(progressKey(), JSON.stringify(p));
+const termsKey = 'tp_terms_' + (state.user || 'anon');
+const loadTerms = () => { try { return JSON.parse(localStorage.getItem(termsKey)) || []; } catch { return []; } };
+const saveTerms = t => localStorage.setItem(termsKey, JSON.stringify(t));
+
 function setProgress(course, unit, pct) {
   const p = loadProgress();
   p[unit] = Math.max(p[unit] || 0, pct);
@@ -122,6 +137,9 @@ function enterApp() {
   overview();
 }
 $('#menuBtn').addEventListener('click', () => $('#sidebar').classList.toggle('open'));
+$$('.nav-item[data-view]').forEach(a => a.addEventListener('click', () => {
+  if (a.dataset.view === 'terms') viewTerms(); else overview();
+}));
 
 /* ------------------------------------------------------------- nav ----- */
 function renderNav() {
@@ -214,11 +232,13 @@ function courseView(code) {
       <div class="eyebrow" style="color:var(--ink-3)">${esc(c.code)} · ${c.credits} credits</div>
       <h1>${esc(c.title)}</h1>
       <p>${esc(c.blurb)}</p>
+      <div class="ramp-note" style="margin-top:12px">Units are ordered foundational → advanced — work them in order.</div>
       <div class="meter-row" style="max-width:420px;margin-top:16px">
         <span class="meter"><i style="width:${courseMastery(code)}%;background:${c.accent}"></i></span>
         <span><strong>${courseMastery(code)}%</strong> course mastery</span>
       </div>
     </div>
+    ${levelLegend()}
     <div class="row-between" style="margin-bottom:14px">
       <h2 style="font-size:20px">Units</h2>
       <button class="btn btn-ghost btn-sm" id="allCards">Flashcards · all units</button>
@@ -228,7 +248,7 @@ function courseView(code) {
       const tag = m >= 70 ? '<span class="tag ok">passed</span>' : (m > 0 ? '<span class="tag warn">in&nbsp;progress</span>' : '<span class="tag neutral">new</span>');
       return `<div class="unit-row" data-unit="${esc(u.id)}">
         <span class="u-num">${i + 1}</span>
-        <div class="u-main"><div class="u-title">${esc(u.title)}</div><div class="u-sum">${esc(u.summary)}</div></div>
+        <div class="u-main"><div class="u-title">${esc(u.title)} ${lvlBadge(u.level)}</div><div class="u-sum">${esc(u.summary)}</div></div>
         <div class="u-right">${tag}<span class="mini-bar"><i style="width:${m}%;background:${pctColor(m)}"></i></span><span class="u-pct">${m}%</span></div>
       </div>`;
     }).join('')}</div>`;
@@ -268,15 +288,22 @@ function unitView(code, uid) {
       ${u.concepts.map(k => `<div class="concept"><div class="c-t">${esc(k.t)}</div><div class="c-d">${esc(k.d)}</div></div>`).join('')}</div>
     <div class="learn-block"><h3>Formulas &amp; rules</h3>
       ${u.formulas.map(f => `<div class="formula"><span class="f-name">${esc(f.n)}</span><span class="f-eq">${esc(f.e)}</span><span class="f-note">${esc(f.note)}</span></div>`).join('')}</div>
-    <div class="learn-block"><h3>Worked example</h3>
-      <div class="example-card"><h4>${esc(u.example.problem)}</h4>
-        <ol>${u.example.steps.map(s => `<li>${esc(s)}</li>`).join('')}</ol>
-        <div class="answer-box"><strong>Answer:</strong> ${esc(u.example.answer)}</div></div></div>
+    <div class="learn-block"><h3>Worked examples</h3>
+      <p class="muted" style="font-size:13.5px;margin:0 0 14px">In order — the first builds the idea, the second is exam-level.</p>
+      <div class="tier"><div class="tier-head">${lvlBadge(1)}<h4>Worked example 1 — build the idea</h4></div>
+        <div class="tier-body"><h4 style="font-size:15px;margin-bottom:12px">${esc(u.example.problem)}</h4>
+          <ol style="margin:0 0 14px;padding-left:20px">${u.example.steps.map(s => `<li style="margin-bottom:6px;font-size:14px;color:var(--ink-2)">${esc(s)}</li>`).join('')}</ol>
+          <div class="answer-box"><strong>Answer:</strong> ${esc(u.example.answer)}</div></div></div>
+      ${u.example_hard ? `<div class="tier"><div class="tier-head">${lvlBadge(u.example_hard.level||3)}<h4>Worked example 2 — exam-level</h4></div>
+        <div class="tier-body"><h4 style="font-size:15px;margin-bottom:12px">${esc(u.example_hard.problem)}</h4>
+          <ol style="margin:0 0 14px;padding-left:20px">${u.example_hard.steps.map(s => `<li style="margin-bottom:6px;font-size:14px;color:var(--ink-2)">${esc(s)}</li>`).join('')}</ol>
+          <div class="answer-box"><strong>Answer:</strong> ${esc(u.example_hard.answer)}</div></div></div>` : ''}
+    </div>
     <div class="grid grid-2">
       <div class="learn-block"><h3>Common traps</h3>${u.traps.map(t => `<div class="trap">${esc(t)}</div>`).join('')}</div>
       <div class="learn-block"><h3>Practise these</h3>
         ${u.practice.map((p, i) => `<div class="practice-item">
-          <div class="practice-q"><strong>Q${i + 1}.</strong> ${esc(p.q)}</div>
+          <div class="practice-q">${lvlBadge(p.level||2)} <strong>Q${i + 1}.</strong> ${esc(p.q)}</div>
           <button class="btn btn-ghost btn-sm reveal-btn" data-a="${i}">Show answer</button>
           <div class="practice-a" id="a${i}" hidden>${esc(p.a)}</div></div>`).join('')}</div>
     </div>`;
@@ -337,7 +364,7 @@ function quizPanel(host, code, unit) {
 
 function start(host, bank, code, unit) {
   host.innerHTML = `<form id="qf">${bank.map((q, i) => `
-    <div class="quiz-q"><div class="qq-text">${i + 1}. ${esc(q.q)}</div>
+    <div class="quiz-q"><div class="qq-text">${lvlBadge(q.level||2)} ${i + 1}. ${esc(q.q)}</div>
       ${q.opts.map((o, j) => `<label class="opt"><input type="radio" name="q${i}" value="${j}" /> <span>${esc(o)}</span></label>`).join('')}
     </div>`).join('')}<button class="btn btn-accent" type="submit">Submit answers</button></form>`;
   $$('.opt input', host).forEach(r => r.addEventListener('change', () =>
@@ -367,6 +394,127 @@ function start(host, bank, code, unit) {
     $('#retry', host).addEventListener('click', () => start(host, bank, code, unit));
     renderNav();
   });
+}
+
+/* --------------------------------------------------------------- terms --- */
+function viewTerms() {
+  state.code = null; state.unit = null; markNav(null); window.scrollTo(0, 0);
+  const terms = loadTerms();
+  $('#content').innerHTML = `
+    <div class="page-head">
+      <div class="eyebrow">Plan your load</div>
+      <h1>Semesters &amp; quarters</h1>
+      <p>Register each term, list your courses, and get a progressive study plan that runs every
+      subject easy → hard. Any course you type joins the plan next to the built-in ones.</p>
+    </div>
+    <div class="card" style="margin-bottom:22px">
+      <h3 style="font-size:18px;margin-bottom:14px">Start a new term</h3>
+      <form id="termForm" class="grid grid-3">
+        <label class="field" style="grid-column:span 2"><span>Term name</span>
+          <input id="tName" placeholder="e.g. Spring 2027" required /></label>
+        <label class="field"><span>Type</span>
+          <select id="tKind"><option value="semester">Semester</option><option value="quarter">Quarter</option>
+            <option value="trimester">Trimester</option><option value="term">Other term</option></select></label>
+        <label class="field"><span>Starts (optional)</span><input id="tStart" type="date" /></label>
+        <label class="field"><span>Ends (optional)</span><input id="tEnd" type="date" /></label>
+        <div style="display:flex;align-items:flex-end;padding-bottom:16px"><button class="btn btn-accent" type="submit">Create term</button></div>
+      </form>
+    </div>
+    ${terms.length ? terms.map((t, ti) => `
+      <div class="card term-card" style="margin-bottom:16px">
+        <div class="row-between">
+          <div class="term-head"><h3>${esc(t.name)}</h3>
+            <span class="tag neutral">${esc(t.kind)}</span>
+            <span class="muted" style="font-size:12.5px">${t.courses.length} course${t.courses.length===1?'':'s'}</span></div>
+          <div class="row">
+            <button class="btn btn-ghost btn-sm" data-plan="${ti}">Study plan</button>
+            <button class="btn btn-ghost btn-sm" data-del="${ti}">Delete</button></div>
+        </div>
+        <div class="row" style="margin-top:4px">
+          ${t.courses.length ? t.courses.map((c, ci) => `<span class="chip-x">${esc(c.code)} · ${esc(c.title)} ${lvlBadge(c.level)}
+            <button data-delcourse="${ti}:${ci}" title="Remove">✕</button></span>`).join('')
+            : '<span class="muted" style="font-size:13px">No courses yet — add one below.</span>'}
+        </div>
+        <form class="grid grid-4" data-addform="${ti}" style="margin-top:6px">
+          <label class="field" style="margin:0"><span>Code</span><input name="code" placeholder="MTH-203" required /></label>
+          <label class="field" style="margin:0"><span>Course title</span><input name="title" placeholder="Calculus III" required /></label>
+          <label class="field" style="margin:0"><span>Units / topics</span><input name="units" type="number" min="1" max="12" value="4" /></label>
+          <label class="field" style="margin:0"><span>Start difficulty</span>
+            <select name="level"><option value="1">Easy</option><option value="2">Medium</option><option value="3">Hard</option></select></label>
+          <label class="field" style="grid-column:1/-1;margin:0"><span>Topics (optional, comma-separated — used as unit names)</span>
+            <input name="topics" placeholder="Vectors, Partial derivatives, Multiple integrals" /></label>
+          <div style="grid-column:1/-1"><button class="btn btn-primary btn-sm" type="submit">Add course</button></div>
+        </form>
+      </div>`).join('') : `<div class="empty">No terms yet. Create one above to plan the semester.</div>`}`;
+
+  $('#termForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const terms2 = loadTerms();
+    terms2.push({ name: $('#tName').value.trim(), kind: $('#tKind').value,
+                  start: $('#tStart').value || null, end: $('#tEnd').value || null, courses: [] });
+    saveTerms(terms2); viewTerms();
+  });
+  $$('#content [data-del]').forEach(b => b.addEventListener('click', () => {
+    if (!confirm('Delete this term?')) return;
+    const t = loadTerms(); t.splice(+b.dataset.del, 1); saveTerms(t); viewTerms();
+  }));
+  $$('#content [data-delcourse]').forEach(b => b.addEventListener('click', () => {
+    const [ti, ci] = b.dataset.delcourse.split(':').map(Number);
+    const t = loadTerms(); t[ti].courses.splice(ci, 1); saveTerms(t); viewTerms();
+  }));
+  $$('#content [data-plan]').forEach(b => b.addEventListener('click', () => studyPlanModal(+b.dataset.plan)));
+  $$('#content [data-addform]').forEach(f => f.addEventListener('submit', e => {
+    e.preventDefault();
+    const ti = +f.dataset.addform, fd = new FormData(f);
+    const t = loadTerms();
+    t[ti].courses.push({ code: String(fd.get('code')||'').toUpperCase(), title: fd.get('title'),
+      units: parseInt(fd.get('units')||'1',10), level: parseInt(fd.get('level')||'1',10),
+      topics: String(fd.get('topics')||'').split(',').map(s=>s.trim()).filter(Boolean) });
+    saveTerms(t); viewTerms();
+  }));
+}
+
+function studyPlanModal(ti) {
+  const t = loadTerms()[ti];
+  if (!t) return;
+  // build the plan: catalog courses use their real units, custom ones generate from topics
+  const plan = t.courses.map(tc => {
+    const cat = DATA.courses.find(c => c.code === tc.code);
+    if (cat) {
+      return { course: cat.title, code: cat.code, custom: false, level: Math.max(...cat.units.map(u=>u.level||2)),
+               units: cat.units.map((u,i)=>({ n:i+1, title:u.title, level:u.level||2 })) };
+    }
+    const n = Math.max(1, tc.units||1), base = tc.level||1;
+    const units = [];
+    for (let i=0;i<n;i++){
+      const lvl = Math.min(3, Math.max(1, base + (i >= Math.floor(n/2) ? 1 : 0)));
+      units.push({ n:i+1, title: tc.topics[i] || `${tc.title} — Part ${i+1}`, level: lvl });
+    }
+    return { course: tc.title, code: tc.code, custom: true, level: base, units };
+  }).sort((a,b)=>a.level-b.level);
+
+  let week = 1, sequence = [];
+  const maxU = Math.max(0, ...plan.map(c=>c.units.length));
+  for (let i=0;i<maxU;i++){
+    for (const c of plan) if (i < c.units.length) sequence.push({ week, code:c.code, unit:c.units[i].title, level:c.units[i].level });
+    week++;
+  }
+
+  openModal('Study plan — ' + t.name, `
+    <p class="muted" style="font-size:13.5px;margin:0 0 18px">Every course runs foundational → advanced, and the weekly
+    sequence <strong>interleaves subjects</strong> — a bit of each subject each week beats one subject at a time.</p>
+    ${plan.map(c => `<div class="tier" style="margin-bottom:12px">
+      <div class="tier-head"><strong style="font-size:14.5px">${esc(c.course)}</strong>
+        <span class="muted" style="font-size:12.5px">${esc(c.code)}</span>
+        ${c.custom ? '<span class="tag neutral">custom</span>' : ''}</div>
+      <div class="tier-body" style="padding:12px 16px">
+        ${c.units.map(u=>`<div class="week-row" style="padding:8px 0"><span class="week-num">Unit ${u.n}</span>
+          <span style="flex:1">${esc(u.title)}</span>${lvlBadge(u.level)}</div>`).join('')}</div></div>`).join('')}
+    <h4 style="font-size:14px;margin:20px 0 10px">Weekly sequence</h4>
+    <div style="border:1px solid var(--border);border-radius:12px;overflow:hidden;max-height:320px;overflow-y:auto">
+      ${sequence.map(s=>`<div class="week-row"><span class="week-num">Wk ${s.week}</span>
+        <span style="flex:1"><strong>${esc(s.code)}</strong> · ${esc(s.unit)}</span>${lvlBadge(s.level)}</div>`).join('')}
+    </div>`);
 }
 
 /* --------------------------------------------------------------- modal --- */

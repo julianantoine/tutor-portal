@@ -20,9 +20,11 @@ formulas with notes, a fully worked example, common traps, and practice problems
 
 ## Features
 
-- **Student portal** — course/unit browser, Learn tabs (concepts → formulas → worked example → traps → practice), flip flashcards, multiple-choice quizzes graded at 70%, mastery rings.
-- **AI tutor** — streaming chat grounded in the selected course/unit material, powered by a **local Ollama model** (default `qwen3.5:27b` on `:11437`). Free and offline.
-- **Tutor/admin dashboard** — per-student mastery across all four courses, quiz history, activity counts, weakest units to target, assignment authoring.
+- **Student portal** — course/unit browser, Learn tabs (concepts → formulas → worked examples → traps → practice), flip flashcards, multiple-choice quizzes graded at 70%, mastery rings.
+- **Progressive difficulty** — every unit, quiz question, worked example and practice problem is tagged **Foundational → Intermediate → Advanced**. Each unit carries two worked examples (one that builds the idea, one exam-level), quizzes are ordered easy → hard, and the AI tutor escalates with you.
+- **Semester / quarter planner** — register each term, list its courses, and add **any course you type**. You get a study plan that orders every subject easy → hard and interleaves subjects week by week.
+- **AI tutor** — streaming chat grounded in the selected course/unit material, powered by a **local Ollama model** (default `hermes3:latest` on `:11437`). Free and offline.
+- **Tutor/admin dashboard** — per-student mastery across all courses, quiz history, activity counts, weakest units to target, assignment authoring.
 - **Assignments** — the tutor sets work; the student checks it off.
 - **Auth** — username/password with PBKDF2 hashing, token sessions in SQLite.
 
@@ -99,10 +101,37 @@ GET  /api/flashcards/{code}   GET  /api/quiz/{code}/{unit}
 POST /api/quiz/submit         GET  /api/progress         POST /api/progress
 POST /api/tutor/chat          (SSE stream)               GET  /api/tutor/status
 GET  /api/chat/sessions       GET  /api/chat/session/{id}
+GET  /api/terms               POST /api/terms            DELETE /api/terms/{id}
+POST /api/terms/{id}/activate GET  /api/terms/{id}/courses
+POST /api/terms/{id}/courses  GET  /api/terms/{id}/study-plan
+DELETE /api/term-courses/{id}
 GET  /api/assignments         POST /api/assignments      POST /api/assignments/{id}/toggle
 GET  /api/admin/students      GET  /api/admin/student/{uid}
 GET  /api/health
 ```
+
+### How the difficulty progression works
+
+`backend/difficulty.py` is the single place that owns the ramp:
+
+- `UNIT_LEVELS` — each unit's tier (1-3), authored **monotonic** per course so working units in
+  syllabus order reads easy → hard.
+- `QUIZ_LEVELS` — per-course list aligning to `QUIZ_BANK` order; questions are then **sorted** so
+  every quiz runs foundational → advanced.
+- `PRACTICE_TAGS` — tags the authored practice problems.
+- `UNIT_EXTRA` — a **harder second worked example** plus extra practice for every unit, so the
+  ladder is real content, not a label.
+
+`content.py` merges all of it at import, and `content.LEVELS` is the one source of the
+labels/colours used by the app, the hosted demo, and the study-plan generator.
+
+### Terms, custom courses, and the study plan
+
+A term belongs to a user and holds a course list. A course whose `code` matches the catalog
+contributes its authored units; any other code is a **custom course** — its `topics` become unit
+names and it gets a generated ramp from the `level` you pick. `/api/terms/{id}/study-plan` then
+returns, per course, the ordered units plus a **weekly interleaved sequence** across all courses
+(research on interleaving: a little of each subject each week beats blocking one at a time).
 
 ## Editing the curriculum
 

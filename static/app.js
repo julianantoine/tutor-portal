@@ -34,6 +34,25 @@ async function api(path, opts = {}) {
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const pctColor = p => p >= 70 ? 'var(--green)' : p >= 40 ? 'var(--amber)' : 'var(--red)';
 
+/* difficulty helpers (1 Foundational · 2 Intermediate · 3 Advanced) */
+const LEVELS = {
+  1: { name: 'Foundational', short: 'Easy',   cls: 'lvl-1' },
+  2: { name: 'Intermediate', short: 'Medium', cls: 'lvl-2' },
+  3: { name: 'Advanced',     short: 'Hard',   cls: 'lvl-3' },
+};
+const lvlName = n => (LEVELS[n] || LEVELS[2]).name;
+function lvlBadge(n) {
+  const L = LEVELS[n] || LEVELS[2];
+  return `<span class="lvl ${L.cls}" title="${L.name}"><span class="lvl-dot">${
+    [1,2,3].map(i => `<i class="${i <= n ? 'on l' + i : ''}"></i>`).join('')
+  }</span>${L.short}</span>`;
+}
+const levelLegend = () => `<div class="level-legend">
+  <span>${lvlBadge(1)} ${LEVELS[1].name} — start here</span>
+  <span>${lvlBadge(2)} ${LEVELS[2].name} — apply the concept</span>
+  <span>${lvlBadge(3)} ${LEVELS[3].name} — multi-step / exam level</span>
+</div>`;
+
 /* ================================================================ AUTH == */
 let authMode = 'login';
 
@@ -186,6 +205,7 @@ const navViews = {
   course:     () => viewCourse(),
   unit:       () => viewUnit(),
   tutor:      () => viewTutor(),
+  terms:      () => viewTerms(),
   assignments:() => viewAssignments(),
   dashboard:  () => viewDashboard(),
 };
@@ -279,11 +299,13 @@ async function viewCourse() {
       <div class="eyebrow" style="color:${c.accent}">${esc(c.code)} · ${c.credits} credits</div>
       <h1>${esc(c.title)}</h1>
       <p>${esc(c.blurb)}</p>
+      <div class="ramp-note" style="margin-top:12px">Units are ordered from foundational to advanced — work them in order.</div>
       <div class="meter-row" style="max-width:420px;margin-top:16px">
         <span class="meter"><i style="width:${cm}%;background:${c.accent}"></i></span>
         <span><strong>${Math.round(cm)}%</strong> course mastery</span>
       </div>
     </div>
+    ${levelLegend()}
     <div class="row-between" style="margin-bottom:14px">
       <h2 style="font-size:20px">Units</h2>
       <div class="row">
@@ -299,7 +321,7 @@ async function viewCourse() {
     return `<div class="unit-row" data-unit="${esc(u.id)}">
       <span class="u-num">${i + 1}</span>
       <div class="u-main">
-        <div class="u-title">${esc(u.title)}</div>
+        <div class="u-title">${esc(u.title)} ${lvlBadge(u.level)}</div>
         <div class="u-sum">${esc(u.summary)}</div>
       </div>
       <div class="u-right">
@@ -361,6 +383,7 @@ async function viewUnit() {
 }
 
 function renderLearnPanel(host, u) {
+  const ex = u.example, exHard = u.example_hard;
   host.innerHTML = `
     <div class="learn-block">
       <h3>Key concepts</h3>
@@ -371,12 +394,25 @@ function renderLearnPanel(host, u) {
       ${u.formulas.map(f => `<div class="formula"><span class="f-name">${esc(f.n)}</span><span class="f-eq">${esc(f.e)}</span><span class="f-note">${esc(f.note)}</span></div>`).join('')}
     </div>
     <div class="learn-block">
-      <h3>Worked example</h3>
-      <div class="example-card">
-        <h4>${esc(u.example.problem)}</h4>
-        <ol>${u.example.steps.map(s => `<li>${esc(s)}</li>`).join('')}</ol>
-        <div class="answer-box"><strong>Answer:</strong> ${esc(u.example.answer)}</div>
+      <h3>Worked examples</h3>
+      <p class="muted" style="font-size:13.5px;margin:0 0 14px">Work these in order — the first builds the idea, the second is exam-level.</p>
+      <div class="tier">
+        <div class="tier-head">${lvlBadge(Math.min(...(u.practice || [{level:1}]).map(p => p.level || 1), 2))}
+          <h4>Worked example 1 — build the idea</h4></div>
+        <div class="tier-body">
+          <h4 style="font-size:15px;margin-bottom:12px">${esc(ex.problem)}</h4>
+          <ol style="margin:0 0 14px;padding-left:20px">${ex.steps.map(s => `<li style="margin-bottom:6px;font-size:14px;color:var(--ink-2)">${esc(s)}</li>`).join('')}</ol>
+          <div class="answer-box"><strong>Answer:</strong> ${esc(ex.answer)}</div>
+        </div>
       </div>
+      ${exHard ? `<div class="tier">
+        <div class="tier-head">${lvlBadge(exHard.level || 3)}<h4>Worked example 2 — exam-level</h4></div>
+        <div class="tier-body">
+          <h4 style="font-size:15px;margin-bottom:12px">${esc(exHard.problem)}</h4>
+          <ol style="margin:0 0 14px;padding-left:20px">${exHard.steps.map(s => `<li style="margin-bottom:6px;font-size:14px;color:var(--ink-2)">${esc(s)}</li>`).join('')}</ol>
+          <div class="answer-box"><strong>Answer:</strong> ${esc(exHard.answer)}</div>
+        </div>
+      </div>` : ''}
     </div>
     <div class="grid grid-2">
       <div class="learn-block">
@@ -384,10 +420,10 @@ function renderLearnPanel(host, u) {
         ${u.traps.map(t => `<div class="trap">${esc(t)}</div>`).join('')}
       </div>
       <div class="learn-block">
-        <h3>Practise these</h3>
+        <h3>Practise these <span class="ramp-note">· easy → hard</span></h3>
         ${u.practice.map((p, i) => `
           <div class="practice-item">
-            <div class="practice-q"><strong>Q${i + 1}.</strong> ${esc(p.q)}</div>
+            <div class="practice-q">${lvlBadge(p.level || 2)} <strong>Q${i + 1}.</strong> ${esc(p.q)}</div>
             <button class="btn btn-ghost btn-sm reveal-btn" data-a="${i}">Show answer</button>
             <div class="practice-a" id="ans-${i}" hidden>${esc(p.a)}</div>
           </div>`).join('')}
@@ -456,12 +492,12 @@ async function renderQuizPanel(host, code, unit) {
     started = true;
     host.innerHTML = `
       <div class="row-between" style="margin-bottom:16px">
-        <div><strong>Unit quiz</strong> <span class="muted">· ${quiz.questions.length} questions · pass at 70%</span></div>
+        <div><strong>Unit quiz</strong> <span class="muted">· ${quiz.questions.length} questions · ordered easy → hard · pass at 70%</span></div>
       </div>
       <form id="quizForm">
         ${quiz.questions.map((q, i) => `
           <div class="quiz-q" data-q="${i}">
-            <div class="qq-text">${i + 1}. ${esc(q.q)}</div>
+            <div class="qq-text">${lvlBadge(q.level || 2)} ${i + 1}. ${esc(q.q)}</div>
             ${q.opts.map((o, j) => `
               <label class="opt"><input type="radio" name="q${i}" value="${j}" /> <span>${esc(o)}</span></label>
             `).join('')}
@@ -700,6 +736,148 @@ async function sendChat() {
     state.chat.streaming = false;
     $('#chatSend').disabled = false;
     loadChatSessions();
+  }
+}
+
+/* ============================================================= TERMS == */
+async function viewTerms() {
+  const d = await api('/api/terms');
+  const terms = d.terms || [];
+  const active = terms.find(t => t.active);
+  $('#content').innerHTML = `
+    <div class="page-head">
+      <div class="eyebrow">Plan your load</div>
+      <h1>Semesters &amp; quarters</h1>
+      <p>Register each term, list the courses you're taking, and get a progressive study plan that
+      runs every subject easy → hard. Add any course — one you type joins the plan alongside the built-in ones.</p>
+    </div>
+
+    <div class="card" style="margin-bottom:22px">
+      <h3 style="font-size:18px;margin-bottom:14px">Start a new term</h3>
+      <form id="termForm" class="grid grid-3">
+        <label class="field" style="grid-column:span 2"><span>Term name</span>
+          <input id="tName" placeholder="e.g. Spring 2027 · Fall Quarter 2027" required /></label>
+        <label class="field"><span>Type</span>
+          <select id="tKind">
+            <option value="semester">Semester</option>
+            <option value="quarter">Quarter</option>
+            <option value="trimester">Trimester</option>
+            <option value="term">Other term</option>
+          </select></label>
+        <label class="field"><span>Starts (optional)</span><input id="tStart" type="date" /></label>
+        <label class="field"><span>Ends (optional)</span><input id="tEnd" type="date" /></label>
+        <div style="display:flex;align-items:flex-end;padding-bottom:16px">
+          <button class="btn btn-accent" type="submit">Create term</button></div>
+      </form>
+    </div>
+
+    ${terms.length ? terms.map(t => `
+      <div class="card term-card" style="margin-bottom:16px">
+        <div class="row-between">
+          <div class="term-head">
+            <h3>${esc(t.name)}</h3>
+            <span class="tag ${t.active ? 'term-active' : 'neutral'}">${t.active ? 'active' : esc(t.kind)}</span>
+            <span class="muted" style="font-size:12.5px">${(t.courses || []).length} course${(t.courses || []).length === 1 ? '' : 's'}</span>
+          </div>
+          <div class="row">
+            ${t.active ? '' : `<button class="btn btn-ghost btn-sm" data-activate="${t.id}">Make active</button>`}
+            <button class="btn btn-ghost btn-sm" data-plan="${t.id}">Study plan</button>
+            <button class="btn btn-ghost btn-sm" data-del="${t.id}">Delete</button>
+          </div>
+        </div>
+        <div class="row" style="margin-top:4px">
+          ${(t.courses || []).length ? (t.courses || []).map(c => `
+            <span class="chip-x">${esc(c.code)} · ${esc(c.title)} ${lvlBadge(c.level)}
+              <button data-delcourse="${c.id}" title="Remove">✕</button></span>`).join('') : '<span class="muted" style="font-size:13px">No courses yet — add one below.</span>'}
+        </div>
+        <form class="grid grid-4" data-addform="${t.id}" style="margin-top:6px">
+          <label class="field" style="margin:0"><span>Code</span><input name="code" placeholder="MTH-203" required /></label>
+          <label class="field" style="margin:0"><span>Course title</span><input name="title" placeholder="Calculus III" required /></label>
+          <label class="field" style="margin:0"><span>Units / topics</span><input name="units" type="number" min="1" max="12" value="4" /></label>
+          <label class="field" style="margin:0"><span>Start difficulty</span>
+            <select name="level"><option value="1">Easy</option><option value="2">Medium</option><option value="3">Hard</option></select></label>
+          <label class="field" style="grid-column:1/-1;margin:0"><span>Topics (optional, comma-separated — used as unit names)</span>
+            <input name="topics" placeholder="Vectors, Partial derivatives, Multiple integrals, Vector fields" /></label>
+          <div style="grid-column:1/-1"><button class="btn btn-primary btn-sm" type="submit">Add course to ${esc(t.name)}</button></div>
+        </form>
+      </div>`).join('') : `<div class="empty">No terms yet. Create one above to plan the semester.</div>`}
+  `;
+
+  $('#termForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const btn = e.target.querySelector('button'); btn.disabled = true;
+    try {
+      await api('/api/terms', { method: 'POST', body: JSON.stringify({
+        name: $('#tName').value.trim(), kind: $('#tKind').value,
+        start_date: $('#tStart').value || null, end_date: $('#tEnd').value || null, make_active: true }) });
+      viewTerms();
+    } catch (ex) { alert('Could not create term: ' + ex.message); btn.disabled = false; }
+  });
+
+  $$('#content [data-activate]').forEach(b => b.addEventListener('click', async () => {
+    await api(`/api/terms/${b.dataset.activate}/activate`, { method: 'POST' }); viewTerms();
+  }));
+  $$('#content [data-del]').forEach(b => b.addEventListener('click', async () => {
+    if (!confirm('Delete this term and its course list?')) return;
+    await api(`/api/terms/${b.dataset.del}`, { method: 'DELETE' }); viewTerms();
+  }));
+  $$('#content [data-delcourse]').forEach(b => b.addEventListener('click', async () => {
+    await api(`/api/term-courses/${b.dataset.delcourse}`, { method: 'DELETE' }); viewTerms();
+  }));
+  $$('#content [data-plan]').forEach(b => b.addEventListener('click', () => openStudyPlan(b.dataset.plan)));
+  $$('#content [data-addform]').forEach(f => f.addEventListener('submit', async e => {
+    e.preventDefault();
+    const tid = f.dataset.addform;
+    const fd = new FormData(f);
+    const topics = (fd.get('topics') || '').split(',').map(s => s.trim()).filter(Boolean);
+    try {
+      await api(`/api/terms/${tid}/courses`, { method: 'POST', body: JSON.stringify({
+        code: fd.get('code'), title: fd.get('title'),
+        units: parseInt(fd.get('units') || '1', 10), level: parseInt(fd.get('level') || '1', 10),
+        topics }) });
+      viewTerms();
+    } catch (ex) { alert('Could not add course: ' + ex.message); }
+  }));
+}
+
+async function openStudyPlan(tid) {
+  openModal('Study plan', `<div class="loading">Building your plan…</div>`);
+  try {
+    const d = await api(`/api/terms/${tid}/study-plan`);
+    const courses = d.plan || [];
+    $('#modalTitle').textContent = `Study plan — ${d.term.name}`;
+    $('#modalBody').innerHTML = `
+      <p class="muted" style="font-size:13.5px;margin:0 0 18px">
+        Every course is ordered foundational → advanced, and the weekly sequence <strong>interleaves subjects</strong>
+        (spending a bit of each subject every week beats one subject at a time).
+      </p>
+      ${courses.map(c => `
+        <div class="tier" style="margin-bottom:12px">
+          <div class="tier-head">
+            <strong style="font-size:14.5px">${esc(c.course)}</strong>
+            <span class="muted" style="font-size:12.5px">${esc(c.code)}</span>
+            ${c.custom ? '<span class="tag neutral">custom</span>' : ''}
+          </div>
+          <div class="tier-body" style="padding:12px 16px">
+            ${c.units.map(u => `<div class="week-row" style="padding:8px 0">
+              <span class="week-num">Unit ${u.n}</span>
+              <span style="flex:1">${esc(u.title)}</span>${lvlBadge(u.level)}
+            </div>`).join('')}
+          </div>
+        </div>`).join('')}
+      <h4 style="font-size:14px;margin:20px 0 10px">Weekly sequence</h4>
+      <div style="border:1px solid var(--border);border-radius:12px;overflow:hidden;max-height:340px;overflow-y:auto">
+        ${(d.sequence || []).map(s => `<div class="week-row">
+          <span class="week-num">Wk ${s.week}</span>
+          <span style="flex:1"><strong>${esc(s.code)}</strong> · ${esc(s.unit)}</span>${lvlBadge(s.level)}
+        </div>`).join('')}
+      </div>
+      <div class="row" style="margin-top:18px">
+        <a class="btn btn-primary btn-sm" href="https://github.com/julianantoine/tutor-portal" target="_blank" rel="noopener">How this works</a>
+        <span class="muted" style="font-size:12.5px">Custom units are worked with the AI tutor — open it and pick the course.</span>
+      </div>`;
+  } catch (ex) {
+    $('#modalBody').innerHTML = `<div class="empty">Could not build the plan: ${esc(ex.message)}</div>`;
   }
 }
 

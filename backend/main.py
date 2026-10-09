@@ -133,6 +133,26 @@ CREATE TABLE IF NOT EXISTS assignments (
     done INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS terms (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'semester',
+    start_date TEXT,
+    end_date TEXT,
+    active INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS term_courses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    term_id INTEGER NOT NULL,
+    code TEXT NOT NULL,
+    title TEXT NOT NULL,
+    units INTEGER NOT NULL DEFAULT 1,
+    level INTEGER NOT NULL DEFAULT 1,
+    topics TEXT,
+    created_at TEXT NOT NULL
+);
 """
 
 
@@ -381,11 +401,12 @@ def courses(user=Depends(current_user)):
         for u in c["units"]:
             p = prog.get(u["id"], {})
             units.append({"id": u["id"], "title": u["title"], "summary": u["summary"],
+                          "level": u.get("level", 2),
                           "mastery": p.get("mastery", 0), "quizzes_taken": p.get("quizzes_taken", 0)})
         out.append({"code": c["code"], "title": c["title"], "short": c["short"],
                     "credits": c["credits"], "accent": c["accent"], "blurb": c["blurb"],
                     "units": units})
-    return {"courses": out}
+    return {"courses": out, "levels": content.LEVELS}
 
 
 @app.get("/api/course/{code}")
@@ -400,7 +421,8 @@ def course_detail(code: str, user=Depends(current_user)):
         uu["mastery"] = prog.get(u["id"], {}).get("mastery", 0)
         units.append(uu)
     return {"code": c["code"], "title": c["title"], "short": c["short"], "accent": c["accent"],
-            "blurb": c["blurb"], "credits": c["credits"], "units": units}
+            "blurb": c["blurb"], "credits": c["credits"], "units": units,
+            "levels": content.LEVELS}
 
 
 @app.get("/api/flashcards/{code}")
@@ -416,9 +438,11 @@ def quiz(code: str, unit_id: str, user=Depends(current_user)):
     qs = content.quiz_for_unit(code, unit_id)
     if not qs:
         raise HTTPException(404, "No quiz for that unit")
-    # strip the answers before sending to the client
-    safe = [{"q": q["q"], "opts": q["opts"]} for q in qs]
-    return {"course_code": code, "unit_id": unit_id, "questions": safe}
+    # strip the answers before sending to the client; questions are already
+    # ordered easy -> hard by the difficulty layer.
+    safe = [{"q": q["q"], "opts": q["opts"], "level": q.get("level", 2)} for q in qs]
+    return {"course_code": code, "unit_id": unit_id, "questions": safe,
+            "levels": content.LEVELS}
 
 
 @app.post("/api/quiz/submit")
@@ -473,6 +497,9 @@ Your job:
 - Teach clearly and Socratic-ly: explain the concept, then guide him to the answer rather than dumping it when he is practising.
 - Keep it focused on the course/unit material below. Use its formulas and conventions EXACTLY.
 - Show worked steps with numbers, units, and a final boxed-style answer when solving a problem.
+- Calibrate to difficulty: units are tagged Foundational / Intermediate / Advanced. On a Foundational
+  topic build intuition with simple numbers first; on an Advanced topic go multi-step and exam-level.
+  When the student seems comfortable, escalate difficulty - that is the point of this portal.
 - If he gets something wrong in practice, say exactly where the slip was - do not just re-solve it silently.
 - Be encouraging but honest; he is behind and needs real progress, not flattery.
 - Keep answers tight: 3-8 short paragraphs or a compact step list. No filler.
@@ -620,6 +647,202 @@ def tutor_status(user=Depends(current_user)):
         pass
     return {"ollama_url": OLLAMA_URL, "model": TUTOR_MODEL, "online": ok,
             "model_present": TUTOR_MODEL in models, "models": models[:40]}
+
+
+# ---------------------------------------------------------------------------
+# Terms / semesters — let the student register their load each term and add
+# courses the catalog doesn't cover, with a generated progressive study plan.
+# ---------------------------------------------------------------------------
+
+class TermIn(BaseModel):
+    name: str
+    kind: Optional[str] = "semester"          # semester | quarter | term
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    make_active: Optional[bool] = True
+
+
+class TermCourseIn(BaseModel):
+    code: str
+    title: str
+    units: Optional[int] = 1
+    level: Optional[int] = 1
+    topics: Optional[List[str]] = None
+
+
+def _term_courses(con, term_id):
+    rows = con.execute(
+        "SELECT id, code, title, units, level, topics FROM term_courses WHERE term_id=? ORDER BY level, id",
+        (term_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/terms")
+def list_terms(user=Depends(current_user)):
+    with db() as con:
+        rows = con.execute(
+            "SELECT * FROM terms WHERE user_id=? ORDER BY active DESC, id DESC", (user["id"],)
+        ).fetchall()
+        out = []
+        for r in rows:
+            t = dict(r)
+            t["courses"] = _term_courses(con, r["id"])
+            out.append(t)
+    return {"terms": out, "catalog_levels": content.LEVELS}
+
+
+@app.post("/api/terms")
+def create_term(body: TermIn, user=Depends(current_user)):
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(400, "Term needs a name")
+    kind = (body.kind or "semester").lower()
+    if kind not in ("semester", "quarter", "term", "trimester"):
+        kind = "semester"
+    with db() as con:
+        if body.make_active:
+            con.execute("UPDATE terms SET active=0 WHERE user_id=?", (user["id"],))
+        cur = con.execute(
+            "INSERT INTO terms(user_id, name, kind, start_date, end_date, active, created_at) "
+            "VALUES(?,?,?,?,?,?,?)",
+            (user["id"], name, kind, body.start_date, body.end_date,
+             1 if body.make_active else 0, now_iso()),
+        )
+        tid = cur.lastrowid
+    return {"ok": True, "id": tid}
+
+
+@app.post("/api/terms/{tid}/activate")
+def activate_term(tid: int, user=Depends(current_user)):
+    with db() as con:
+        own = con.execute("SELECT id FROM terms WHERE id=? AND user_id=?", (tid, user["id"])).fetchone()
+        if not own:
+            raise HTTPException(404, "Term not found")
+        con.execute("UPDATE terms SET active=0 WHERE user_id=?", (user["id"],))
+        con.execute("UPDATE terms SET active=1 WHERE id=?", (tid,))
+    return {"ok": True}
+
+
+@app.delete("/api/terms/{tid}")
+def delete_term(tid: int, user=Depends(current_user)):
+    with db() as con:
+        own = con.execute("SELECT id FROM terms WHERE id=? AND user_id=?", (tid, user["id"])).fetchone()
+        if not own:
+            raise HTTPException(404, "Term not found")
+        con.execute("DELETE FROM term_courses WHERE term_id=?", (tid,))
+        con.execute("DELETE FROM terms WHERE id=?", (tid,))
+    return {"ok": True}
+
+
+@app.get("/api/terms/{tid}/courses")
+def term_courses(tid: int, user=Depends(current_user)):
+    with db() as con:
+        own = con.execute("SELECT * FROM terms WHERE id=? AND user_id=?", (tid, user["id"])).fetchone()
+        if not own:
+            raise HTTPException(404, "Term not found")
+        courses = _term_courses(con, tid)
+    return {"term": dict(own), "courses": courses}
+
+
+@app.post("/api/terms/{tid}/courses")
+def add_term_course(tid: int, body: TermCourseIn, user=Depends(current_user)):
+    code = body.code.strip().upper()
+    title = body.title.strip()
+    if not code or not title:
+        raise HTTPException(400, "Course needs a code and a title")
+    topics = body.topics or []
+    with db() as con:
+        own = con.execute("SELECT id FROM terms WHERE id=? AND user_id=?", (tid, user["id"])).fetchone()
+        if not own:
+            raise HTTPException(404, "Term not found")
+        cur = con.execute(
+            "INSERT INTO term_courses(term_id, code, title, units, level, topics, created_at) "
+            "VALUES(?,?,?,?,?,?,?)",
+            (tid, code, title, max(1, body.units or 1), max(1, min(3, body.level or 1)),
+             json.dumps(topics), now_iso()),
+        )
+        cid = cur.lastrowid
+    return {"ok": True, "id": cid}
+
+
+@app.delete("/api/term-courses/{cid}")
+def delete_term_course(cid: int, user=Depends(current_user)):
+    with db() as con:
+        row = con.execute(
+            "SELECT tc.id FROM term_courses tc JOIN terms t ON t.id = tc.term_id "
+            "WHERE tc.id=? AND t.user_id=?", (cid, user["id"])
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "Course not found")
+        con.execute("DELETE FROM term_courses WHERE id=?", (cid,))
+    return {"ok": True}
+
+
+@app.get("/api/terms/{tid}/study-plan")
+def term_study_plan(tid: int, user=Depends(current_user)):
+    """A progressive study plan across every course in the term, easy -> hard.
+
+    Catalog courses contribute their authored units (already level-tagged);
+    custom courses contribute generated units drawn from the topics the student
+    typed, so every course in the term is workable.
+    """
+    with db() as con:
+        own = con.execute("SELECT * FROM terms WHERE id=? AND user_id=?", (tid, user["id"])).fetchone()
+        if not own:
+            raise HTTPException(404, "Term not found")
+        courses = _term_courses(con, tid)
+
+    plan = []
+    for tc in courses:
+        cat = content.course_by_code(tc["code"])
+        if cat:
+            units = [{"n": i + 1, "id": u["id"], "title": u["title"], "level": u.get("level", 2),
+                      "summary": u["summary"], "custom": False}
+                     for i, u in enumerate(cat["units"])]
+            plan.append({"course": cat["title"], "code": cat["code"], "custom": False,
+                         "level": max(u["level"] for u in units) if units else 1, "units": units})
+        else:
+            topics = []
+            try:
+                topics = json.loads(tc.get("topics") or "[]")
+            except Exception:
+                topics = []
+            n = max(1, tc.get("units") or 1)
+            base = tc.get("level") or 1
+            topics = [t for t in topics if str(t).strip()]
+            units = []
+            for i in range(n):
+                # ramp difficulty across the generated units, clamped to 1..3
+                lvl = min(3, max(1, base + (1 if i >= n // 2 else 0)))
+                title = topics[i] if i < len(topics) else f"{tc['title']} — Part {i + 1}"
+                units.append({
+                    "n": i + 1, "id": None, "title": title, "level": lvl, "custom": True,
+                    "summary": "Custom unit you added for this term. Use the AI tutor to work it, "
+                               "and add practice problems as you go.",
+                })
+            plan.append({"course": tc["title"], "code": tc["code"], "custom": True,
+                         "level": base, "units": units})
+
+    # order courses easy -> hard, and give one interleaved weekly sequence
+    plan.sort(key=lambda c: c["level"])
+    sequence = []
+    week = 1
+    # round-robin the courses so weeks interleave subjects (better for retention)
+    max_units = max((len(c["units"]) for c in plan), default=0)
+    for i in range(max_units):
+        for c in plan:
+            if i < len(c["units"]):
+                u = c["units"][i]
+                sequence.append({"week": week, "course": c["course"], "code": c["code"],
+                                 "unit": u["title"], "level": u["level"], "custom": u["custom"]})
+                week += 0  # same week groups the parallel units
+        week += 1
+    # renumber: give each course-row its own week index for clarity
+    for idx, s in enumerate(sequence):
+        s["step"] = idx + 1
+    return {"term": dict(own), "plan": plan, "sequence": sequence,
+            "levels": content.LEVELS}
 
 
 # ---------------------------------------------------------------------------

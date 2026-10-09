@@ -1022,7 +1022,9 @@ def course_context(course_code, unit_id=None):
     lines = [f"COURSE: {c['title']} ({c['code']})", f"Overview: {c['blurb']}", ""]
     units = [u for u in c["units"] if (unit_id is None or u["id"] == unit_id)]
     for u in units:
-        lines.append(f"UNIT — {u['title']}: {u['summary']}")
+        lvl = u.get("level", 2)
+        lvlname = {1: "Foundational", 2: "Intermediate", 3: "Advanced"}.get(lvl, "Intermediate")
+        lines.append(f"UNIT — {u['title']} [{lvlname}]: {u['summary']}")
         for con in u["concepts"]:
             lines.append(f"  • {con['t']}: {con['d']}")
         for f in u["formulas"]:
@@ -1047,3 +1049,52 @@ try:
         QUIZ_BANK[_code].extend(_qs)
 except ImportError:  # pragma: no cover
     pass
+
+
+# ---------------------------------------------------------------------------
+# Difficulty progression merge (difficulty.py)
+# Tags every unit / quiz question / practice problem with a level (1-3) and adds
+# a harder worked example + extra practice per unit, so material can be worked
+# easy -> hard. Degrades gracefully if difficulty.py is absent.
+# ---------------------------------------------------------------------------
+
+try:
+    from difficulty import LEVELS, UNIT_LEVELS, QUIZ_LEVELS, PRACTICE_TAGS, UNIT_EXTRA
+except ImportError:  # pragma: no cover
+    LEVELS, UNIT_LEVELS, QUIZ_LEVELS, PRACTICE_TAGS, UNIT_EXTRA = {}, {}, {}, {}, {}
+
+LEVEL_ORDER = (1, 2, 3)
+
+
+def _apply_difficulty():
+    for c in COURSES:
+        for u in c["units"]:
+            uid = u["id"]
+            lvl = UNIT_LEVELS.get(uid, 2)
+            u["level"] = lvl
+            # tag the base practice problems
+            tags = PRACTICE_TAGS.get(uid, [])
+            for i, p in enumerate(u.get("practice", [])):
+                p["level"] = tags[i] if i < len(tags) else min(3, lvl + 1)
+            extra = UNIT_EXTRA.get(uid, {})
+            # a harder second worked example
+            if extra.get("example"):
+                ex = dict(extra["example"])
+                ex.setdefault("level", min(3, lvl + 1))
+                u["example_hard"] = ex
+            # extra practice, merged and ordered easy -> hard
+            if extra.get("practice"):
+                u["practice"] = u.get("practice", []) + list(extra["practice"])
+            u["practice"] = sorted(u.get("practice", []), key=lambda p: p.get("level", 2))
+        # quiz questions: tag + order easy -> hard within the course
+        qs = QUIZ_BANK.get(c["code"], [])
+        levels = QUIZ_LEVELS.get(c["code"], [])
+        for i, q in enumerate(qs):
+            q["level"] = levels[i] if i < len(levels) else 2
+        QUIZ_BANK[c["code"]] = sorted(qs, key=lambda q: q["level"])
+
+
+_apply_difficulty()
+# NOTE: units keep their SYLLABUS order (the pedagogy is the sequence); the level
+# badge shows the ramp. UNIT_LEVELS is authored monotonic per course so the ramp
+# still reads easy -> hard.
