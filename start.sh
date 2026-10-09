@@ -10,7 +10,7 @@ PY="${PY:-/usr/bin/python3}"
 
 # Local Ollama with the newer model set (falls back to 11434 if 11437 is down).
 export OLLAMA_URL="${OLLAMA_URL:-http://localhost:11437}"
-export TUTOR_MODEL="${TUTOR_MODEL:-qwen3.5:27b}"
+export TUTOR_MODEL="${TUTOR_MODEL:-hermes3:latest}"
 
 cd "$DIR"
 

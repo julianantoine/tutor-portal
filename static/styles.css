@@ -1,39 +1,41 @@
 /* =========================================================================
-   Tutor Portal — clean, restrained design language
-   Near-white warm canvas · Inter · thin headings · pill buttons ·
-   layered sub-0.1 shadows · hairline borders · 20px cards
+   Tutor Portal — professional gray design language
+   Cool-neutral canvas · Inter · thin headings · pill buttons ·
+   layered sub-0.1 shadows · hairline borders · cards
    ========================================================================= */
 
 :root {
   --bg:      #ffffff;
-  --bg-2:    #f5f5f5;
-  --bg-3:    #f5f2ef;
-  --ink:     #0a0a0a;
+  --bg-2:    #f4f4f5;
+  --bg-3:    #ececed;
+  --bg-4:    #e4e4e7;
+  --ink:     #18181b;
   --ink-2:   #3f3f46;
   --ink-3:   #71717a;
   --ink-4:   #a1a1aa;
-  --border:  #e5e5e5;
-  --border-soft: rgba(0,0,0,0.05);
+  --border:  #e2e2e5;
+  --border-soft: rgba(0,0,0,0.055);
 
-  --accent:  #0f766e;
-  --accent-ink: #0b5b55;
-  --accent-soft: rgba(15,118,110,0.08);
+  /* single accent is slate gray — professional, not colorful */
+  --accent:  #3f3f46;
+  --accent-ink: #27272a;
+  --accent-soft: rgba(63,63,70,0.07);
 
   --green:  #15803d;  --green-soft:  rgba(21,128,61,0.10);
-  --amber:  #b45309;  --amber-soft:  rgba(180,83,9,0.10);
+  --amber:  #a16207;  --amber-soft:  rgba(161,98,7,0.10);
   --red:    #b91c1c;  --red-soft:    rgba(185,28,28,0.10);
-  --violet: #7c3aed;  --violet-soft: rgba(124,58,237,0.10);
+  --violet: #52525b;  --violet-soft: rgba(82,82,91,0.10);
 
   --head: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --body: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 
-  --radius: 20px;
+  --radius: 18px;
   --radius-sm: 12px;
   --radius-xs: 9px;
 
   --shadow-sm: rgba(0,0,0,0.06) 0px 0px 0px 1px, rgba(0,0,0,0.04) 0px 1px 2px 0px;
-  --shadow-md: rgba(0,0,0,0.06) 0px 0px 0px 1px, rgba(0,0,0,0.04) 0px 4px 12px -2px;
-  --shadow-lg: rgba(0,0,0,0.07) 0px 0px 0px 1px, rgba(0,0,0,0.06) 0px 18px 40px -12px;
+  --shadow-md: rgba(0,0,0,0.06) 0px 0px 0px 1px, rgba(0,0,0,0.05) 0px 4px 14px -3px;
+  --shadow-lg: rgba(0,0,0,0.08) 0px 0px 0px 1px, rgba(0,0,0,0.07) 0px 20px 44px -14px;
 
   --sidebar-w: 268px;
   --topbar-h: 62px;
@@ -70,8 +72,8 @@ small { font-size: 12.5px; }
   white-space: nowrap;
 }
 .btn:active { transform: translateY(1px); }
-.btn-primary { background: #000; color: #fff; }
-.btn-primary:hover { background: #262626; }
+.btn-primary { background: #18181b; color: #fff; }
+.btn-primary:hover { background: #3f3f46; }
 .btn-accent { background: var(--accent); color: #fff; }
 .btn-accent:hover { background: var(--accent-ink); }
 .btn-ghost { background: transparent; color: var(--ink); border-color: var(--border); }
@@ -95,7 +97,7 @@ small { font-size: 12.5px; }
   max-width: 620px; width: 100%;
 }
 .auth-aside {
-  background: linear-gradient(180deg, #f5f2ef, #fff);
+  background: linear-gradient(180deg, #f4f4f5, #fff);
   border-left: 1px solid var(--border);
   display: flex; align-items: center; padding: 64px clamp(28px, 6vw, 84px);
 }
@@ -219,6 +221,7 @@ small { font-size: 12.5px; }
 .grid-2 { grid-template-columns: repeat(2, 1fr); }
 .grid-3 { grid-template-columns: repeat(3, 1fr); }
 .grid-4 { grid-template-columns: repeat(4, 1fr); }
+.grid-courses { display: grid; gap: 18px; grid-template-columns: repeat(3, 1fr); }
 
 .card {
   background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
@@ -352,7 +355,7 @@ small { font-size: 12.5px; }
 .msg { max-width: 78%; }
 .msg .bubble { padding: 12px 16px; border-radius: 16px; font-size: 14.5px; line-height: 1.62; white-space: pre-wrap; overflow-wrap: anywhere; }
 .msg.user { align-self: flex-end; }
-.msg.user .bubble { background: #000; color: #fff; border-bottom-right-radius: 5px; }
+.msg.user .bubble { background: #18181b; color: #fff; border-bottom-right-radius: 5px; }
 .msg.assistant .bubble { background: var(--bg-3); color: var(--ink); border-bottom-left-radius: 5px; }
 .msg .role-tag { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-4); margin-bottom: 5px; }
 .msg.user .role-tag { text-align: right; }

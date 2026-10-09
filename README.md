@@ -4,16 +4,18 @@ A local-first **tutoring SaaS** for a sophomore engineering-technology course lo
 Curriculum, worked examples, flashcards, graded quizzes and a **local AI tutor** —
 in one browser app, running entirely on your own machine (no cloud, no API bill).
 
-## The four courses
+## The six courses
 
 | Code | Course | Units | What it covers |
 |------|--------|------:|----------------|
+| **MTH-202** | Calculus II | 6 | Integration techniques, improper integrals & applications, sequences & series, power/Taylor series, parametric & polar curves, first-order ODEs |
+| **PHY-202** | Physics II (Electricity & Magnetism) | 6 | Charge/force/field, Gauss's law, potential & capacitance, DC circuits, magnetism & induction, inductance/AC/EM waves |
 | **CCD-101** | Character, Career and Self Development | 5 | Engineering ethics (NSPE), technical communication, teamwork, career readiness, growth mindset |
 | **MD-102** | Modeling and Design | 5 | Design process, visualization/sketching, CAD & solid modeling, drawings & tolerances, DFM & prototyping |
 | **SM-201** | Static Modeling of Mechanical Systems | 6 | Vectors & force systems, particle equilibrium, rigid bodies, trusses, frames/friction, centroids & moments of inertia |
 | **EM-202** | Engineering Materials | 6 | Bonding, crystal structures & defects, mechanical properties & testing, phase diagrams & heat treatment, failure modes, materials selection |
 
-**22 units · 33 quiz questions · 190 flashcards** — every unit has key concepts,
+**34 units · 55 quiz questions · 315 flashcards** — every unit has key concepts,
 formulas with notes, a fully worked example, common traps, and practice problems.
 
 ## Features
@@ -42,24 +44,31 @@ Then open <http://127.0.0.1:8950/> (or `http://<lan-ip>:8950/` from a phone/lapt
 
 | Username | Password | Role |
 |----------|----------|------|
+| `antoine` | (your set password) | full tutor access |
 | `student` | `student` | student view |
 | `tutor` | `tutor` | tutor dashboard |
 
-New students can self-register on the sign-in screen.
+New students can self-register on the sign-in screen. The hosted GitHub Pages demo
+(`docs/`) also has a register/login that stores accounts **in your browser only**.
 
 ### The AI tutor needs Ollama
 
 The tutor calls an OpenAI-compatible Ollama server:
 
 - `OLLAMA_URL` — default `http://localhost:11437`
-- `TUTOR_MODEL` — default `qwen3.5:27b`
+- `TUTOR_MODEL` — default `hermes3:latest`
 
-Start Ollama, then `ollama pull qwen3.5:27b` if the model isn't present. The status dot
+Start Ollama, then `ollama pull <model>` if the model isn't present. The status dot
 in the top bar turns green when the tutor server answers. Change the model with:
 
 ```bash
-TUTOR_MODEL=qwen3:8b ./start.sh      # smaller / faster
+TUTOR_MODEL=llama3.2 ./start.sh      # smaller / faster
 ```
+
+Note: this box (Xeon + 4 GB Quadro) is CPU-bound for large models — a 27B model is
+too slow to be usable interactively. Small-to-mid models (≈4–12B) respond in seconds.
+Reasoning models (e.g. `gemma4`) stream their output into a separate `thinking` field
+and may return empty `content`; prefer an instruct model like `hermes3` or `llama3.2`.
 
 ## Architecture
 

@@ -49,7 +49,7 @@ DB_PATH = DATA_DIR / "tutor.db"
 STATIC_DIR = BASE_DIR / "static"
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11437")
-TUTOR_MODEL = os.environ.get("TUTOR_MODEL", "qwen3.5:27b")
+TUTOR_MODEL = os.environ.get("TUTOR_MODEL", "hermes3:latest")
 PORT = int(os.environ.get("PORT", "8950"))
 
 
@@ -493,8 +493,14 @@ def build_system_prompt(course_code, unit_id):
 
 
 async def ollama_stream(messages):
-    """Yield text deltas from the local Ollama /api/chat streaming endpoint."""
-    payload = {"model": TUTOR_MODEL, "messages": messages, "stream": True}
+    """Yield text deltas from the local Ollama /api/chat streaming endpoint.
+
+    num_predict caps runaway generation on weaker local hardware. Some local
+    models emit a reasoning trace instead of content; we prefer `content` and
+    do not surface `thinking` (it is the model's scratchpad, not the answer).
+    """
+    payload = {"model": TUTOR_MODEL, "messages": messages, "stream": True,
+               "options": {"num_predict": 700}}
     async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
         async with client.stream("POST", f"{OLLAMA_URL}/api/chat", json=payload) as r:
             if r.status_code != 200:
@@ -507,7 +513,8 @@ async def ollama_stream(messages):
                     obj = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                delta = (obj.get("message") or {}).get("content", "")
+                msg = obj.get("message") or {}
+                delta = msg.get("content") or ""
                 if delta:
                     yield delta
                 if obj.get("done"):

@@ -91,10 +91,12 @@ function renderAsideCourses() {
   // static list on the auth screen — the catalog lives in the backend, but the
   // four course titles are fixed for this build, so list them without a call.
   const courses = [
-    ['#0f766e', 'Character, Career & Self Development', '2 cr · ethics, communication, career'],
-    ['#4f46e5', 'Modeling and Design', '3 cr · design process, CAD, drawings'],
-    ['#b45309', 'Static Modeling of Mechanical Systems', '3 cr · statics, trusses, friction'],
-    ['#7c3aed', 'Engineering Materials', '3 cr · bonding, phases, failure, selection'],
+    ['#52525b', 'Character, Career & Self Development', '2 cr · ethics, communication, career'],
+    ['#71717a', 'Modeling and Design', '3 cr · design process, CAD, drawings'],
+    ['#3f3f46', 'Static Modeling of Mechanical Systems', '3 cr · statics, trusses, friction'],
+    ['#a1a1aa', 'Engineering Materials', '3 cr · bonding, phases, failure, selection'],
+    ['#4b5563', 'Calculus II', '4 cr · integration, series, polar, ODEs'],
+    ['#374151', 'Physics II (Electricity & Magnetism)', '4 cr · fields, circuits, magnetism'],
   ];
   $('#asideCourses').innerHTML = courses.map(([c, t, s]) =>
     `<li><span class="dot" style="background:${c}"></span><div><div>${esc(t)}</div><div class="a-sub">${esc(s)}</div></div></li>`
@@ -235,7 +237,7 @@ function viewOverview() {
     </div>
 
     <h2 style="font-size:22px;margin-bottom:16px">Courses</h2>
-    <div class="grid grid-2" style="margin-bottom:34px">
+    <div class="grid-courses" style="margin-bottom:34px">
       ${state.courses.map(c => {
         const cm = s.courses.find(x => x.code === c.code)?.mastery || 0;
         const done = c.units.filter(u => (state.progress[u.id]?.mastery || 0) >= 70).length;

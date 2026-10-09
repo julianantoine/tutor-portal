@@ -21,7 +21,7 @@ COURSES = [
         "title": "Character, Career and Self Development",
         "short": "Career & Self Dev",
         "credits": 2,
-        "accent": "#0f766e",
+        "accent": "#52525b",
         "blurb": "Engineering ethics, professional communication, teamwork, and career readiness.",
         "units": [
             {
@@ -209,7 +209,7 @@ COURSES = [
         "title": "Modeling and Design",
         "short": "Modeling & Design",
         "credits": 3,
-        "accent": "#4f46e5",
+        "accent": "#71717a",
         "blurb": "The engineering design process, visualization, CAD solid modeling, and engineering drawings.",
         "units": [
             {
@@ -395,7 +395,7 @@ COURSES = [
         "title": "Static Modeling of Mechanical Systems (Statics)",
         "short": "Statics / Mech Systems",
         "credits": 3,
-        "accent": "#b45309",
+        "accent": "#3f3f46",
         "blurb": "Equilibrium of particles and rigid bodies, trusses, frames, friction, centroids and moments of inertia.",
         "units": [
             {
@@ -634,7 +634,7 @@ COURSES = [
         "title": "Engineering Materials",
         "short": "Engineering Materials",
         "credits": 3,
-        "accent": "#7c3aed",
+        "accent": "#a1a1aa",
         "blurb": "Structure–property relationships, mechanical testing, phase diagrams, failure, and materials selection.",
         "units": [
             {
@@ -1030,3 +1030,20 @@ def course_context(course_code, unit_id=None):
         lines.append(f"  Worked example: {u['example']['problem']} -> {u['example']['answer']}")
         lines.append("")
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Additional courses (Calculus II, Physics II) live in content_extra.py; merge
+# them here so every surface (courses, flashcards, quizzes, tutor context)
+# picks them up from this one module.
+# ---------------------------------------------------------------------------
+
+try:
+    from content_extra import CALC2, PHYS2, QUIZ_EXTRA
+    # Calculus II and Physics II are foundational for the second-year load — list them first.
+    COURSES[:0] = [CALC2, PHYS2]
+    for _code, _qs in QUIZ_EXTRA.items():
+        QUIZ_BANK.setdefault(_code, [])
+        QUIZ_BANK[_code].extend(_qs)
+except ImportError:  # pragma: no cover
+    pass

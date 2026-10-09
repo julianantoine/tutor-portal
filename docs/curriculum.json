@@ -1,11 +1,990 @@
 {
  "courses": [
   {
+   "code": "MTH-202",
+   "title": "Calculus II",
+   "short": "Calculus II",
+   "credits": 4,
+   "accent": "#4b5563",
+   "blurb": "Integration techniques, applications of the integral, sequences and series, power/Taylor series, polar and parametric curves, first-order ODEs.",
+   "units": [
+    {
+     "id": "mth-1",
+     "title": "Integration Techniques",
+     "summary": "Substitution, integration by parts, partial fractions, and trigonometric integrals.",
+     "concepts": [
+      {
+       "t": "u-substitution",
+       "d": "Pick u so du replaces the messy part: ∫ f(g(x)) g'(x) dx = ∫ f(u) du. Look for a function and its own derivative in the integrand."
+      },
+      {
+       "t": "Integration by parts",
+       "d": "∫ u dv = uv − ∫ v du. Choose u by LIATE order (Logarithmic, Inverse trig, Algebraic, Trigonometric, Exponential) — u is the first kind you hit."
+      },
+      {
+       "t": "Trig integrals",
+       "d": "For ∫ sinᵐx cosⁿx dx: odd power → split off one factor and substitute; both even → use half-angle identities (sin²x = (1−cos2x)/2)."
+      },
+      {
+       "t": "Trig substitution",
+       "d": "√(a²−x²) → x = a sin θ; √(a²+x²) → x = a tan θ; √(x²−a²) → x = a sec θ. Substitute, integrate, then back-substitute."
+      },
+      {
+       "t": "Partial fractions",
+       "d": "Factor the denominator; for each linear factor put A/(x−a), for each irreducible quadratic put (Bx+C)/(x²+…). Solve for A, B, C by matching coefficients or plugging convenient x."
+      },
+      {
+       "t": "Indefinite vs. definite",
+       "d": "For a definite integral with substitution, either change the limits to u-values (cleanest) or back-substitute and evaluate in x. Never mix x-limits with u-variables."
+      }
+     ],
+     "formulas": [
+      {
+       "n": "Integration by parts",
+       "e": "∫ u dv = u v − ∫ v du",
+       "note": "Choose u by LIATE; the remaining factor is dv."
+      },
+      {
+       "n": "Half-angle (even powers)",
+       "e": "sin²x = (1 − cos 2x)/2,  cos²x = (1 + cos 2x)/2",
+       "note": "Use when both exponents are even."
+      },
+      {
+       "n": "Common antiderivative",
+       "e": "∫ dx/x = ln|x| + C",
+       "note": "Absolute value matters for negative x."
+      },
+      {
+       "n": "Trig-sub identity",
+       "e": "1 + tan²θ = sec²θ",
+       "note": "Drops the radical after an x = a tanθ substitution."
+      }
+     ],
+     "example": {
+      "problem": "Evaluate ∫ x eˣ dx.",
+      "steps": [
+       "Integrate by parts: let u = x, dv = eˣ dx → du = dx, v = eˣ.",
+       "Apply ∫u dv = uv − ∫v du: = x eˣ − ∫ eˣ dx.",
+       "∫ eˣ dx = eˣ, so the result is x eˣ − eˣ + C = eˣ(x − 1) + C.",
+       "Check by differentiating: d/dx[eˣ(x−1)] = eˣ(x−1) + eˣ = x eˣ ✓."
+      ],
+      "answer": "∫ x eˣ dx = eˣ(x − 1) + C."
+     },
+     "traps": [
+      "Choosing u badly in by-parts (pick the LIATE-first factor, not the easy-to-integrate one).",
+      "Forgetting + C on every indefinite integral — it costs marks.",
+      "Leaving a u-substitution answer in terms of u for an indefinite integral."
+     ],
+     "practice": [
+      {
+       "q": "Evaluate ∫ ln x dx.",
+       "a": "By parts with u = ln x, dv = dx: = x ln x − ∫ x·(1/x) dx = x ln x − x + C = x(ln x − 1) + C."
+      },
+      {
+       "q": "Evaluate ∫ 2x/(x²+1) dx.",
+       "a": "u = x²+1, du = 2x dx → ∫ du/u = ln(x²+1) + C."
+      }
+     ]
+    },
+    {
+     "id": "mth-2",
+     "title": "Improper Integrals & Applications",
+     "summary": "Integrals to infinity, areas, volumes of revolution, arc length, and work.",
+     "concepts": [
+      {
+       "t": "Improper integrals",
+       "d": "Replace an infinite limit or an infinite discontinuity with a variable and take a limit: ∫₁^∞ f = lim(b→∞) ∫₁^b f. If the limit is finite, it converges; otherwise it diverges."
+      },
+      {
+       "t": "p-integral test",
+       "d": "∫₁^∞ dx/xᵖ converges if p > 1 and diverges if p ≤ 1. The single most useful benchmark for convergence."
+      },
+      {
+       "t": "Area between curves",
+       "d": "A = ∫ (top − bottom) dx, or ∫ (right − left) dy. Sketch first — the roles can swap inside the interval."
+      },
+      {
+       "t": "Volume of revolution",
+       "d": "Disk/washer about the x-axis: V = π∫ (R² − r²) dx. Shells about the y-axis: V = 2π∫ (radius)(height) dx."
+      },
+      {
+       "t": "Arc length",
+       "d": "L = ∫ √(1 + (dy/dx)²) dx for y = f(x); equivalently ∫ √((dx/dt)²+(dy/dt)²) dt for parametric curves."
+      },
+      {
+       "t": "Work",
+       "d": "W = ∫ F(x) dx. Variable-force problems: express the force as a function of position first (springs: F = kx; pumping: weight of the slice)."
+      }
+     ],
+     "formulas": [
+      {
+       "n": "Improper integral",
+       "e": "∫_a^∞ f(x) dx = lim_{b→∞} ∫_a^b f(x) dx",
+       "note": "Converges only if the limit is a finite number."
+      },
+      {
+       "n": "p-integral",
+       "e": "∫₁^∞ x^(−p) dx converges iff p > 1",
+       "note": "Diverges for p ≤ 1 (including the harmonic p = 1)."
+      },
+      {
+       "n": "Washer volume",
+       "e": "V = π ∫_a^b (R(x)² − r(x)²) dx",
+       "note": "R = outer radius from the axis, r = inner."
+      },
+      {
+       "n": "Shell volume",
+       "e": "V = 2π ∫_a^b (radius)(height) dx",
+       "note": "Shells for a y-axis rotation of a y = f(x) region."
+      },
+      {
+       "n": "Arc length",
+       "e": "L = ∫_a^b √(1 + (f′(x))²) dx",
+       "note": "Radians/units consistent."
+      }
+     ],
+     "example": {
+      "problem": "Find the volume of the solid formed by revolving the region under y = x² on [0, 2] about the x-axis.",
+      "steps": [
+       "This is a disk: radius R(x) = y = x², so V = π ∫₀² (x²)² dx = π ∫₀² x⁴ dx.",
+       "∫ x⁴ dx = x⁵/5; evaluate 0 to 2: (2⁵ − 0)/5 = 32/5.",
+       "Multiply by π: V = 32π/5 ≈ 20.1 cubic units."
+      ],
+      "answer": "V = 32π/5 ≈ 20.1 units³."
+     },
+     "traps": [
+      "Forgetting to square the radius in the disk/washer formula.",
+      "Using x-limits after a u-substitution without converting them (or back-substituting).",
+      "Assuming an improper integral converges — always take the limit and show it is finite."
+     ],
+     "practice": [
+      {
+       "q": "Does ∫₁^∞ dx/x³ converge, and to what?",
+       "a": "p = 3 > 1 → converges; ∫₁^∞ x^(−3) dx = [−1/(2x²)]₁^∞ = 1/2."
+      },
+      {
+       "q": "Find the arc length of y = (2/3)x^(3/2) on [0, 3].",
+       "a": "y′ = x^(1/2); L = ∫₀³ √(1+x) dx = (2/3)[(1+x)^(3/2)]₀³ = (2/3)(8 − 1) = 14/3 ≈ 4.67."
+      }
+     ]
+    },
+    {
+     "id": "mth-3",
+     "title": "Sequences & Series",
+     "summary": "Convergence, divergence, and the tests that decide them.",
+     "concepts": [
+      {
+       "t": "Sequence vs. series",
+       "d": "A sequence lists terms aₙ; a series is their sum Σaₙ. A series needs the terms' partial sums to approach a finite limit to converge."
+      },
+      {
+       "t": "nth-term (divergence) test",
+       "d": "If lim aₙ ≠ 0, the series diverges. It can NOT prove convergence (harmonic series has aₙ→0 yet diverges)."
+      },
+      {
+       "t": "Geometric series",
+       "d": "Σ arⁿ converges to a/(1−r) when |r| < 1, diverges when |r| ≥ 1."
+      },
+      {
+       "t": "p-series",
+       "d": "Σ 1/nᵖ converges if p > 1 (e.g. Σ1/n² converges), diverges if p ≤ 1 (harmonic Σ1/n diverges)."
+      },
+      {
+       "t": "Comparison tests",
+       "d": "Direct: bound the terms by a known series. Limit comparison: lim (aₙ/bₙ) = L with 0 < L < ∞ → both behave the same."
+      },
+      {
+       "t": "Ratio & root tests",
+       "d": "Ratio: L = lim |aₙ₊₁/aₙ|. If L < 1 converge, L > 1 diverge, L = 1 inconclusive. Root test uses |aₙ|^(1/n) — great for nth powers."
+      },
+      {
+       "t": "Alternating series test",
+       "d": "Σ(−1)ⁿaₙ with aₙ decreasing and → 0 converges. Absolute convergence is stronger (converges even ignoring signs)."
+      }
+     ],
+     "formulas": [
+      {
+       "n": "Geometric sum",
+       "e": "Σ_{n=0}^∞ a rⁿ = a/(1−r), |r|<1",
+       "note": "Diverges when |r| ≥ 1."
+      },
+      {
+       "n": "Ratio test",
+       "e": "L = lim |aₙ₊₁ / aₙ|",
+       "note": "L<1 conv, L>1 div, L=1 no conclusion."
+      },
+      {
+       "n": "Limit comparison",
+       "e": "If lim aₙ/bₙ = L (0<L<∞), both series behave alike",
+       "note": "Compare to a p-series or geometric."
+      },
+      {
+       "n": "Alternating series",
+       "e": "Σ(−1)ⁿaₙ converges if aₙ↓0",
+       "note": "Decreasing AND limit zero — both required."
+      }
+     ],
+     "example": {
+      "problem": "Does Σ_{n=1}^∞ 1/n² converge? What about Σ 1/n?",
+      "steps": [
+       "Σ 1/n² is a p-series with p = 2 > 1 → it converges (its sum is π²/6 ≈ 1.645).",
+       "Σ 1/n is the harmonic series: p = 1, the boundary case → it diverges.",
+       "Note the nth-term test can't tell them apart (both have aₙ → 0), which is why p-series knowledge matters."
+      ],
+      "answer": "Σ1/n² converges (p=2>1); Σ1/n diverges (p=1)."
+     },
+     "traps": [
+      "Using the nth-term test to claim convergence — it can only show divergence.",
+      "Applying the ratio test and getting L = 1, then stating a conclusion (it's inconclusive).",
+      "For an alternating series, checking aₙ→0 but not that the terms decrease."
+     ],
+     "practice": [
+      {
+       "q": "Does Σ (n!/10ⁿ) converge?",
+       "a": "Ratio test: aₙ₊₁/aₙ = (n+1)/10 → ∞, so L > 1 → diverges."
+      },
+      {
+       "q": "Does Σ (−1)ⁿ/n converge, and absolutely?",
+       "a": "Converges by the alternating series test (1/n↓0), but only conditionally — Σ1/n diverges, so it is not absolutely convergent."
+      }
+     ]
+    },
+    {
+     "id": "mth-4",
+     "title": "Power Series & Taylor Series",
+     "summary": "Representing functions as infinite polynomials — and when that's valid.",
+     "concepts": [
+      {
+       "t": "Power series",
+       "d": "Σ cₙ(x−a)ⁿ, centred at a. Converges on an interval |x−a| < R (radius of convergence); test the two endpoints separately."
+      },
+      {
+       "t": "Radius from the ratio test",
+       "d": "Apply the ratio test to the series; solve |x−a| < R. Inside a power series can be differentiated and integrated term by term."
+      },
+      {
+       "t": "Taylor & Maclaurin series",
+       "d": "f(x) = Σ f⁽ⁿ⁾(a)(x−a)ⁿ/n!. Maclaurin is the special case a = 0."
+      },
+      {
+       "t": "Standard series to memorise",
+       "d": "1/(1−x) = Σxⁿ (|x|<1); eˣ = Σxⁿ/n!; sin x = Σ(−1)ⁿx^(2n+1)/(2n+1)!; cos x = Σ(−1)ⁿx^(2n)/(2n)!; ln(1+x) = Σ(−1)^(n+1)xⁿ/n."
+      },
+      {
+       "t": "Binomial series",
+       "d": "(1+x)^k = Σ C(k,n) xⁿ for any real k, convergent for |x| < 1; useful for approximations."
+      },
+      {
+       "t": "Error and applications",
+       "d": "The Lagrange error bound |Rₙ| ≤ M|x−a|^(n+1)/(n+1)! bounds the truncation error. Series also give limits and integrals that have no elementary antiderivative."
+      }
+     ],
+     "formulas": [
+      {
+       "n": "Maclaurin series",
+       "e": "f(x) = Σ_{n=0}^∞ f⁽ⁿ⁾(0) xⁿ / n!",
+       "note": "Taylor about x = a replaces 0 with a."
+      },
+      {
+       "n": "eˣ series",
+       "e": "eˣ = Σ xⁿ/n! = 1 + x + x²/2! + x³/3! + …",
+       "note": "Converges for all x (R = ∞)."
+      },
+      {
+       "n": "Geometric power series",
+       "e": "1/(1−x) = Σ xⁿ, |x| < 1",
+       "note": "R = 1; the workhorse for integrating/differentiating series."
+      },
+      {
+       "n": "Lagrange error bound",
+       "e": "|Rₙ(x)| ≤ M |x−a|^(n+1) / (n+1)!",
+       "note": "M bounds |f⁽ⁿ⁺¹⁾| on the interval."
+      }
+     ],
+     "example": {
+      "problem": "Write the Maclaurin series for eˣ and use its first three terms to approximate e^0.1.",
+      "steps": [
+       "Every derivative of eˣ is 1 at x = 0, so f⁽ⁿ⁾(0) = 1 and eˣ = Σ xⁿ/n!.",
+       "First three terms: 1 + x + x²/2.",
+       "At x = 0.1: 1 + 0.1 + (0.01)/2 = 1 + 0.1 + 0.005 = 1.105.",
+       "The true value is e^0.1 ≈ 1.10517, so the error is under 2×10⁻⁴ — the next term is 0.001/6 ≈ 1.7×10⁻⁴."
+      ],
+      "answer": "eˣ = Σ xⁿ/n!; three terms at x = 0.1 give ≈ 1.105 (true 1.10517)."
+     },
+     "traps": [
+      "Forgetting to check both endpoints of the convergence interval (R alone doesn't include/exclude them).",
+      "Mis-stating a memorised series (sign, exponent, or factorial).",
+      "Using a series outside its radius of convergence."
+     ],
+     "practice": [
+      {
+       "q": "Find the Maclaurin series for sin x.",
+       "a": "sin x = x − x³/3! + x⁵/5! − … = Σ(−1)ⁿx^(2n+1)/(2n+1)!."
+      },
+      {
+       "q": "Use 1/(1−x) = Σxⁿ to find the series for 1/(1+x²).",
+       "a": "Replace x with −x²: 1/(1+x²) = Σ(−1)ⁿx^(2n) = 1 − x² + x⁴ − … for |x| < 1."
+      }
+     ]
+    },
+    {
+     "id": "mth-5",
+     "title": "Parametric & Polar Curves",
+     "summary": "Curves described by a parameter or by radius and angle.",
+     "concepts": [
+      {
+       "t": "Parametric curves",
+       "d": "x = x(t), y = y(t). Eliminate t to get a Cartesian equation where possible, but keep the parametric form for calculus."
+      },
+      {
+       "t": "Parametric slope & arc length",
+       "d": "dy/dx = (dy/dt)/(dx/dt) (requires dx/dt ≠ 0). L = ∫ √((dx/dt)² + (dy/dt)²) dt."
+      },
+      {
+       "t": "Polar coordinates",
+       "d": "x = r cos θ, y = r sin θ; r² = x² + y², tan θ = y/x. A single point has infinitely many (r, θ) pairs."
+      },
+      {
+       "t": "Polar area",
+       "d": "A = ½ ∫_α^β r² dθ. For the region between two curves, integrate ½(r_outer² − r_inner²)."
+      },
+      {
+       "t": "Common polar curves",
+       "d": "Circles (r = a, r = 2a cos θ), cardioids (r = a(1 ± cos θ)), rose curves (r = a cos(nθ) with n or 2n petals)."
+      },
+      {
+       "t": "Polar slope",
+       "d": "dy/dx = (dr/dθ sin θ + r cos θ)/(dr/dθ cos θ − r sin θ) — or convert to parametric and use dy/dx = (dy/dθ)/(dx/dθ)."
+      }
+     ],
+     "formulas": [
+      {
+       "n": "Parametric arc length",
+       "e": "L = ∫_α^β √((dx/dt)² + (dy/dt)²) dt",
+       "note": "Same form as arc length, in t."
+      },
+      {
+       "n": "Polar area",
+       "e": "A = ½ ∫_α^β r(θ)² dθ",
+       "note": "The ½ is easy to drop."
+      },
+      {
+       "n": "Polar → Cartesian",
+       "e": "x = r cos θ,  y = r sin θ",
+       "note": "Also r² = x² + y²."
+      }
+     ],
+     "example": {
+      "problem": "Find the area enclosed by the cardioid r = 1 + cos θ.",
+      "steps": [
+       "The cardioid is traced fully for 0 ≤ θ ≤ 2π.",
+       "A = ½ ∫₀^{2π} (1 + cos θ)² dθ.",
+       "Expand: (1 + cos θ)² = 1 + 2cos θ + cos²θ.",
+       "Use cos²θ = (1+cos2θ)/2: the integrand averages 1 + 0 + ½ = 3/2 per cycle over 2π, giving ∫ = 3π.",
+       "A = ½ × 3π = 3π/2."
+      ],
+      "answer": "Area = 3π/2 ≈ 4.71 square units."
+     },
+     "traps": [
+      "Forgetting the ½ in the polar area formula.",
+      "Using the wrong angular bounds (find where the curve closes, or where the petals are traced).",
+      "Computing dy/dx where dx/dt = 0 (vertical tangent — handle separately)."
+     ],
+     "practice": [
+      {
+       "q": "Convert the polar point (2, π/3) to Cartesian.",
+       "a": "x = 2cos(π/3) = 1; y = 2sin(π/3) = √3 ≈ 1.73 → (1, √3)."
+      },
+      {
+       "q": "Find the arc length of x = t², y = (2/3)t³ for 0 ≤ t ≤ 1.",
+       "a": "dx/dt = 2t, dy/dt = 2t²; L = ∫₀¹ √(4t² + 4t⁴) dt = ∫₀¹ 2t√(1+t²) dt = (2/3)[(1+t²)^(3/2)]₀¹ = (2/3)(2√2 − 1) ≈ 1.22."
+      }
+     ]
+    },
+    {
+     "id": "mth-6",
+     "title": "Introduction to Differential Equations",
+     "summary": "Separable and first-order linear ODEs — the gateway to modelling.",
+     "concepts": [
+      {
+       "t": "What an ODE is",
+       "d": "An equation with a derivative, e.g. dy/dx = f(x, y). Order = highest derivative present. A solution is a function, not a number."
+      },
+      {
+       "t": "Separable equations",
+       "d": "If dy/dx = g(x)h(y), separate: dy/h(y) = g(x) dx, then integrate both sides. This is the most common first type."
+      },
+      {
+       "t": "First-order linear",
+       "d": "y′ + P(x)y = Q(x). Multiply by the integrating factor μ = e^{∫P dx}; then (μy)′ = μQ and integrate."
+      },
+      {
+       "t": "Initial value problems",
+       "d": "Use the given y(x₀) = y₀ to pin down the constant of integration — the general solution has a C, the IVP has a number."
+      },
+      {
+       "t": "Exponential growth/decay",
+       "d": "dy/dt = ky → y = y₀e^{kt}. k > 0 growth, k < 0 decay; the classic model for populations, radioactive decay, cooling (with Newton's law of cooling)."
+      },
+      {
+       "t": "Slope fields & direction",
+       "d": "dy/dx gives the slope at each point; a slope field sketches solution families. Equilibrium solutions are where f(y) = 0."
+      }
+     ],
+     "formulas": [
+      {
+       "n": "Separable solution",
+       "e": "∫ dy/h(y) = ∫ g(x) dx",
+       "note": "Split, integrate each side, then solve for y."
+      },
+      {
+       "n": "Integrating factor",
+       "e": "μ(x) = e^{∫P(x) dx}",
+       "note": "Turns y′ + Py = Q into (μy)′ = μQ."
+      },
+      {
+       "n": "Exponential model",
+       "e": "y = y₀ e^{k t}",
+       "note": "Solve for k from data, then use it."
+      },
+      {
+       "n": "Newton's law of cooling",
+       "e": "dT/dt = −k(T − T_env)",
+       "note": "Solution approaches T_env exponentially."
+      }
+     ],
+     "example": {
+      "problem": "Solve dy/dx = 3x²y, given y(0) = 2.",
+      "steps": [
+       "Separate: dy/y = 3x² dx.",
+       "Integrate both sides: ln|y| = x³ + C.",
+       "Exponentiate: y = A e^{x³} (where A = e^C).",
+       "Apply y(0) = 2: 2 = A e⁰ → A = 2."
+      ],
+      "answer": "y = 2 e^{x³}."
+     },
+     "traps": [
+      "Adding C to both sides — one constant is enough (fold it into the solution).",
+      "Forgetting to apply the initial condition and leaving the answer with a C.",
+      "Dropping the absolute value when a log appears, or mis-exponentiating."
+     ],
+     "practice": [
+      {
+       "q": "Solve dy/dx = x/y.",
+       "a": "y dy = x dx → y²/2 = x²/2 + C → y² − x² = K (hyperbolas)."
+      },
+      {
+       "q": "A population grows at 3%/year from 500. Model and predict after 10 years.",
+       "a": "y = 500 e^{0.03t}; y(10) = 500 e^{0.3} ≈ 500 × 1.3499 ≈ 675."
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "code": "PHY-202",
+   "title": "Physics II (Electricity & Magnetism)",
+   "short": "Physics II",
+   "credits": 4,
+   "accent": "#374151",
+   "blurb": "Electric charge and field, Gauss's law, potential and capacitance, DC circuits, magnetism and induction, AC circuits and EM waves.",
+   "units": [
+    {
+     "id": "phy-1",
+     "title": "Electric Charge, Force & Field",
+     "summary": "Coulomb's law, superposition, and the electric field of point charges and dipoles.",
+     "concepts": [
+      {
+       "t": "Charge & quantisation",
+       "d": "Charge comes in multiples of e = 1.60×10⁻¹⁹ C. Like charges repel, unlike attract. Charge is conserved and quantised."
+      },
+      {
+       "t": "Coulomb's law",
+       "d": "F = k|q₁q₂|/r², k = 8.99×10⁹ N·m²/C². Force is along the line joining the charges; a vector, so superposition applies component-wise."
+      },
+      {
+       "t": "Electric field",
+       "d": "E = F/q₀ (force per unit positive test charge). For a point charge, E = kq/r² directed away from +q, toward −q."
+      },
+      {
+       "t": "Superposition & field lines",
+       "d": "Total field = vector sum of individual fields. Field lines start on +, end on −, never cross, and their density indicates strength."
+      },
+      {
+       "t": "Electric dipole",
+       "d": "Two equal opposite charges ±q separated by d. Dipole moment p = qd. Far away the field falls off as 1/r³ (faster than a point charge's 1/r²)."
+      },
+      {
+       "t": "Conductors in equilibrium",
+       "d": "E = 0 inside; excess charge sits on the surface; the field just outside is perpendicular to the surface; sharp points concentrate charge."
+      }
+     ],
+     "formulas": [
+      {
+       "n": "Coulomb's law",
+       "e": "F = k |q₁ q₂| / r²",
+       "note": "k = 8.99×10⁹ N·m²/C²; also k = 1/(4πε₀)."
+      },
+      {
+       "n": "Electric field (point charge)",
+       "e": "E = k q / r²",
+       "note": "Direction away from +q, toward −q."
+      },
+      {
+       "n": "Force on a charge in a field",
+       "e": "F = q E",
+       "note": "Vector: a negative charge feels force opposite E."
+      },
+      {
+       "n": "Permittivity",
+       "e": "ε₀ = 8.85×10⁻¹² C²/(N·m²)",
+       "note": "k = 1/(4πε₀)."
+      }
+     ],
+     "example": {
+      "problem": "Two point charges, each +1.0 μC, are 0.10 m apart in vacuum. Find the magnitude of the force between them.",
+      "steps": [
+       "q₁ = q₂ = 1.0×10⁻⁶ C, r = 0.10 m.",
+       "F = k q₁q₂ / r² = (8.99×10⁹)(1.0×10⁻⁶)(1.0×10⁻⁶) / (0.10)².",
+       "Numerator: 8.99×10⁹ × 1.0×10⁻¹² = 8.99×10⁻³.",
+       "Divide by 0.01: F = 0.899 N.",
+       "Both are positive, so the force is repulsive."
+      ],
+      "answer": "F ≈ 0.899 N, repulsive (like charges)."
+     },
+     "traps": [
+      "Dropping the squared r, or forgetting to convert μC → 10⁻⁶ C.",
+      "Treating the force as a scalar and ignoring direction in a multi-charge problem.",
+      "Forgetting that the force on a negative charge is opposite to E."
+     ],
+     "practice": [
+      {
+       "q": "What is E at 0.20 m from a +2.0 μC point charge?",
+       "a": "E = kq/r² = (8.99×10⁹)(2.0×10⁻⁶)/(0.20)² = (1.798×10⁴)/0.04 = 4.49×10⁵ N/C, directed away from the charge."
+      },
+      {
+       "q": "Two +3 nC and one −3 nC charge sit at triangle corners. How do you find the net force on one?",
+       "a": "Compute each pairwise Coulomb force as a vector, then sum them component-wise — superposition."
+      }
+     ]
+    },
+    {
+     "id": "phy-2",
+     "title": "Gauss's Law",
+     "summary": "Flux and the symmetry trick that makes hard field problems easy.",
+     "concepts": [
+      {
+       "t": "Electric flux",
+       "d": "Φ_E = ∫ E·dA — the 'flow' of field through a surface. For a uniform field and flat area, Φ = E A cos θ."
+      },
+      {
+       "t": "Gauss's law",
+       "d": "The net flux through any closed surface equals the enclosed charge over ε₀: ∮E·dA = Q_enc/ε₀. Charges outside contribute zero net flux."
+      },
+      {
+       "t": "Using symmetry",
+       "d": "Choose a Gaussian surface matching the symmetry (sphere, cylinder, pillbox) so E is constant and perpendicular on the surface — then E·A = Q_enc/ε₀ solves directly."
+      },
+      {
+       "t": "Field of a point charge / sphere",
+       "d": "Outside any spherically symmetric charge distribution, E = kQ/r² (same as a point charge). Inside a uniformly charged insulating sphere E grows as r; inside a conductor E = 0."
+      },
+      {
+       "t": "Infinite line & plane",
+       "d": "Line charge density λ: E = λ/(2πε₀r), radial. Infinite plane with σ: E = σ/(2ε₀), uniform, directed away from a positive sheet."
+      },
+      {
+       "t": "Conductors again",
+       "d": "The field just outside a conductor is σ/ε₀; a Faraday cage (closed conductor) shields its interior — the basis of electrostatic shielding."
+      }
+     ],
+     "formulas": [
+      {
+       "n": "Gauss's law",
+       "e": "∮ E·dA = Q_enc / ε₀",
+       "note": "Net flux through any closed surface."
+      },
+      {
+       "n": "Infinite line charge",
+       "e": "E = λ / (2 π ε₀ r)",
+       "note": "Radial, falls off as 1/r."
+      },
+      {
+       "n": "Infinite plane / sheet",
+       "e": "E = σ / (2 ε₀)",
+       "note": "Uniform field, independent of distance."
+      },
+      {
+       "n": "Flux through a flat area",
+       "e": "Φ = E A cos θ",
+       "note": "θ = angle between E and the normal."
+      }
+     ],
+     "example": {
+      "problem": "Use Gauss's law to find the field at distance r from an infinitely long line with uniform charge density λ.",
+      "steps": [
+       "Symmetry → E points radially outward and is constant on a cylinder of radius r and length L.",
+       "Flux through the curved surface = E(2πrL); the two end caps have zero flux (E parallel to them).",
+       "Enclosed charge = λL.",
+       "Gauss: E(2πrL) = λL/ε₀ → E = λ/(2πε₀r)."
+      ],
+      "answer": "E = λ / (2π ε₀ r), directed radially outward for positive λ."
+     },
+     "traps": [
+      "Putting the wrong surface area in the flux (cylinder curved area is 2πrL, not πr²).",
+      "Forgetting the end-cap flux is zero (E parallel to the cap normal).",
+      "Using Q_enc including charges outside the surface — they contribute zero net flux."
+     ],
+     "practice": [
+      {
+       "q": "What is the field just outside an infinite conducting sheet with surface charge density σ = 4.0 μC/m²?",
+       "a": "For a conductor the field is E = σ/ε₀ = (4.0×10⁻⁶)/(8.85×10⁻¹²) ≈ 4.5×10⁵ N/C, perpendicular to the surface."
+      },
+      {
+       "q": "A cube encloses a +6 μC charge. What is the net flux?",
+       "a": "Φ = Q/ε₀ = (6×10⁻⁶)/(8.85×10⁻¹²) ≈ 6.8×10⁵ N·m²/C, independent of the cube size."
+      }
+     ]
+    },
+    {
+     "id": "phy-3",
+     "title": "Electric Potential & Capacitance",
+     "summary": "Energy per charge, storing charge, and the fields inside capacitors.",
+     "concepts": [
+      {
+       "t": "Electric potential",
+       "d": "V = U/q — potential energy per unit charge, a scalar. For a point charge V = kq/r; the reference V = 0 is usually at infinity."
+      },
+      {
+       "t": "Potential difference & work",
+       "d": "W = qΔV; the field does work on a positive charge moving to lower potential. Potential diff = voltage; the volt is a joule per coulomb."
+      },
+      {
+       "t": "Field from potential",
+       "d": "E = −dV/dx (in 1D); the field points 'downhill' in potential. In uniform fields, V = Ed."
+      },
+      {
+       "t": "Equipotentials",
+       "d": "Surfaces of constant V are perpendicular to E. No work is done moving a charge along an equipotential."
+      },
+      {
+       "t": "Capacitance",
+       "d": "C = Q/V, unit farad (F). Parallel plates: C = ε₀κA/d (κ = dielectric constant). Capacitors in series add reciprocals; in parallel add directly (opposite of resistors)."
+      },
+      {
+       "t": "Energy stored",
+       "d": "U = ½CV² = ½QV = Q²/(2C). The energy sits in the electric field, with energy density u = ½ε₀E²."
+      }
+     ],
+     "formulas": [
+      {
+       "n": "Potential of a point charge",
+       "e": "V = k q / r",
+       "note": "Scalar sum for multiple charges."
+      },
+      {
+       "n": "Work by the field",
+       "e": "W = q ΔV",
+       "note": "Positive charge moving to lower V gains kinetic energy."
+      },
+      {
+       "n": "Parallel-plate capacitance",
+       "e": "C = ε₀ κ A / d",
+       "note": "Larger plate area or a dielectric raises C; a bigger gap lowers it."
+      },
+      {
+       "n": "Energy in a capacitor",
+       "e": "U = ½ C V²",
+       "note": "Also Q²/2C or ½QV."
+      },
+      {
+       "n": "Capacitors in parallel / series",
+       "e": "parallel: C = C₁+C₂+…; series: 1/C = 1/C₁+1/C₂+…",
+       "note": "Opposite of resistors."
+      }
+     ],
+     "example": {
+      "problem": "A parallel-plate capacitor has plates of area 2.0×10⁻³ m² separated by 1.0 mm, with air between them. Find C and the energy stored at 100 V.",
+      "steps": [
+       "C = ε₀A/d = (8.85×10⁻¹²)(2.0×10⁻³)/(1.0×10⁻³).",
+       "Numerator: 1.77×10⁻¹⁴; divide by 1.0×10⁻³: C = 1.77×10⁻¹¹ F ≈ 17.7 pF.",
+       "U = ½CV² = 0.5 × 1.77×10⁻¹¹ × (100)² = 0.5 × 1.77×10⁻¹¹ × 10⁴.",
+       "U ≈ 8.85×10⁻⁸ J."
+      ],
+      "answer": "C ≈ 17.7 pF; U ≈ 8.85×10⁻⁸ J at 100 V."
+     },
+     "traps": [
+      "Confusing potential (V, scalar, volts) with potential energy (U, joules).",
+      "Mixing up series/parallel rules for capacitors with those for resistors.",
+      "Forgetting κ in the dielectric formula, or using mm instead of m for d."
+     ],
+     "practice": [
+      {
+       "q": "A 4 μF and a 6 μF capacitor are in series. Find the equivalent capacitance.",
+       "a": "1/C = 1/4 + 1/6 = 5/12 → C = 12/5 = 2.4 μF."
+      },
+      {
+       "q": "What potential does a +5 nC charge create at 0.30 m?",
+       "a": "V = kq/r = (8.99×10⁹)(5×10⁻⁹)/0.30 ≈ 150 V."
+      }
+     ]
+    },
+    {
+     "id": "phy-4",
+     "title": "Current, Resistance & DC Circuits",
+     "summary": "Ohm's law, series/parallel networks, power, and Kirchhoff's rules.",
+     "concepts": [
+      {
+       "t": "Current & drift",
+       "d": "I = dQ/dt — charge per second, in amperes. Conventional current is the direction positive charge would flow (opposite the electrons)."
+      },
+      {
+       "t": "Ohm's law & resistance",
+       "d": "V = IR. R = ρL/A: longer/thinner wires resist more. Resistivity ρ depends on material and rises with temperature for metals."
+      },
+      {
+       "t": "Power",
+       "d": "P = IV = I²R = V²/R (watts). A resistor dissipates electrical energy as heat; the form you use depends on what's fixed."
+      },
+      {
+       "t": "Series & parallel resistors",
+       "d": "Series: R = R₁ + R₂ + … (same current). Parallel: 1/R = 1/R₁ + 1/R₂ + … (same voltage); two in parallel: R = R₁R₂/(R₁+R₂)."
+      },
+      {
+       "t": "EMF & internal resistance",
+       "d": "A real battery: V_terminal = ε − Ir. The terminal voltage drops under load; ε is the open-circuit EMF."
+      },
+      {
+       "t": "Kirchhoff's rules",
+       "d": "Junction (current): ΣI_in = ΣI_out. Loop (voltage): the algebraic sum of potential changes around any loop = 0. Two independent rules, any number of loops."
+      }
+     ],
+     "formulas": [
+      {
+       "n": "Ohm's law",
+       "e": "V = I R",
+       "note": "Ohmic only if R is constant."
+      },
+      {
+       "n": "Resistance of a wire",
+       "e": "R = ρ L / A",
+       "note": "ρ = resistivity (Ω·m)."
+      },
+      {
+       "n": "Electric power",
+       "e": "P = I V = I² R = V² / R",
+       "note": "Watts = joules per second."
+      },
+      {
+       "n": "Parallel resistors (two)",
+       "e": "R = R₁ R₂ / (R₁ + R₂)",
+       "note": "Product over sum; result is smaller than either."
+      },
+      {
+       "n": "Kirchhoff loop rule",
+       "e": "Σ ΔV = 0 around a loop",
+       "note": "Junction rule: ΣI_in = ΣI_out."
+      }
+     ],
+     "example": {
+      "problem": "Find the current through, and power burned by, the resistor in this circuit: a 12 V battery (internal resistance 0.5 Ω) in series with a 5.5 Ω resistor.",
+      "steps": [
+       "Total resistance = internal + external = 0.5 + 5.5 = 6.0 Ω.",
+       "Current: I = ε/R_total = 12 / 6.0 = 2.0 A.",
+       "Terminal voltage: V = ε − Ir = 12 − (2.0)(0.5) = 11 V.",
+       "Power in the 5.5 Ω resistor: P = I²R = (2.0)²(5.5) = 22 W."
+      ],
+      "answer": "I = 2.0 A; terminal voltage 11 V; P = 22 W in the resistor (and 2 W lost inside the battery)."
+     },
+     "traps": [
+      "Ignoring internal resistance (must add it to the loop total).",
+      "Using the parallel rule where the resistors are actually in series (or vice-versa).",
+      "Assigning the same current to both branches of a parallel pair — it's the voltage that's equal there."
+     ],
+     "practice": [
+      {
+       "q": "A 3 Ω and a 6 Ω resistor in parallel across a 12 V source: total current?",
+       "a": "R = (3×6)/(3+6) = 2 Ω; I = V/R = 12/2 = 6 A."
+      },
+      {
+       "q": "A 100 W bulb on 120 V — what's its resistance?",
+       "a": "R = V²/P = (120)²/100 = 144 Ω."
+      }
+     ]
+    },
+    {
+     "id": "phy-5",
+     "title": "Magnetism & Induction",
+     "summary": "Forces on moving charge and wires, fields from currents, and Faraday's law.",
+     "concepts": [
+      {
+       "t": "Magnetic force on a charge",
+       "d": "F = qvB sin θ; direction from the right-hand rule. Unlike the electric force, it acts only on MOVING charge and is perpendicular to v."
+      },
+      {
+       "t": "Force on a current-carrying wire",
+       "d": "F = I L B sin θ. The force direction follows the right-hand rule for current."
+      },
+      {
+       "t": "Field from a current (Biot–Savart / Ampère)",
+       "d": "Long straight wire: B = μ₀I/(2πr). Solenoid: B = μ₀nI. The field circles the wire (right-hand grip rule)."
+      },
+      {
+       "t": "Ampère's law",
+       "d": "∮B·dl = μ₀I_enc — the magnetic analogue of Gauss's law; use it with current symmetry (wire, solenoid, toroid)."
+      },
+      {
+       "t": "Magnetic flux",
+       "d": "Φ = BA cos θ (webers). Flux is the magnetic-field analogue of electric flux and drives induction."
+      },
+      {
+       "t": "Faraday & Lenz",
+       "d": "EMF = −N dΦ/dt (Faraday). The minus is Lenz's law: the induced current opposes the change in flux — it always fights the cause."
+      }
+     ],
+     "formulas": [
+      {
+       "n": "Magnetic force on a charge",
+       "e": "F = q v B sin θ",
+       "note": "Zero if v ∥ B; no work done (force ⊥ v)."
+      },
+      {
+       "n": "Force on a wire",
+       "e": "F = B I L sin θ",
+       "note": "Max when the wire ⊥ B."
+      },
+      {
+       "n": "Field of a long wire",
+       "e": "B = μ₀ I / (2 π r)",
+       "note": "μ₀ = 4π×10⁻⁷ T·m/A."
+      },
+      {
+       "n": "Faraday's law",
+       "e": "EMF = − N ΔΦ_B / Δt",
+       "note": "Lenz's minus sign gives the induced current's direction."
+      },
+      {
+       "n": "Solenoid field",
+       "e": "B = μ₀ n I",
+       "note": "n = turns per unit length."
+      }
+     ],
+     "example": {
+      "problem": "A straight wire 0.50 m long carries 4.0 A perpendicular to a 0.30 T magnetic field. Find the force, and the EMF induced if the wire is pulled through the field so the flux changes by 0.60 Wb in 0.20 s (single loop).",
+      "steps": [
+       "Force: F = BIL sin θ = 0.30 × 4.0 × 0.50 × sin 90° = 0.60 N.",
+       "Induced EMF: EMF = −N ΔΦ/Δt = −1 × (0.60)/(0.20) = −3.0 V.",
+       "The magnitude is 3.0 V; the sign (Lenz) means the induced current opposes the increase in flux."
+      ],
+      "answer": "F = 0.60 N; induced EMF magnitude = 3.0 V (direction set by Lenz's law)."
+     },
+     "traps": [
+      "Using sin θ where cos θ belongs (F = qvB sinθ, Φ = BA cosθ — different angles).",
+      "Forgetting the magnetic force does no work (it is perpendicular to v).",
+      "Ignoring Lenz's sign — the magnitude is easy, the direction needs the minus."
+     ],
+     "practice": [
+      {
+       "q": "What is B at 0.05 m from a long wire carrying 10 A?",
+       "a": "B = μ₀I/(2πr) = (4π×10⁻⁷)(10)/(2π×0.05) = (2×10⁻⁷×10)/0.05 = 4.0×10⁻⁵ T."
+      },
+      {
+       "q": "A 200-turn coil sees flux change 0.02 Wb in 0.10 s. Induced EMF?",
+       "a": "EMF = N ΔΦ/Δt = 200 × 0.02/0.10 = 40 V."
+      }
+     ]
+    },
+    {
+     "id": "phy-6",
+     "title": "Inductance, AC Circuits & EM Waves",
+     "summary": "Inductors, RLC behaviour, resonance, and how light emerges from electromagnetism.",
+     "concepts": [
+      {
+       "t": "Inductance",
+       "d": "A coil resists change in current: EMF = −L dI/dt. Inductance L (henry) depends on geometry; energy stored U = ½LI²."
+      },
+      {
+       "t": "RL circuits",
+       "d": "Current grows as I = (ε/R)(1 − e^{−t/τ}) with time constant τ = L/R; it never jumps instantly."
+      },
+      {
+       "t": "AC basics & RMS",
+       "d": "Alternating voltage/current oscillate; V_rms = V_peak/√2. Reactance: X_L = ωL (inductor), X_C = 1/(ωC) (capacitor)."
+      },
+      {
+       "t": "RLC impedance & resonance",
+       "d": "Z = √(R² + (X_L − X_C)²). Resonance when X_L = X_C, i.e. ω = 1/√(LC), at which Z is minimum and current is maximum."
+      },
+      {
+       "t": "Transformers",
+       "d": "V_s/V_p = N_s/N_p; ideal power is conserved so current steps the other way. Underlies AC power distribution."
+      },
+      {
+       "t": "Maxwell → EM waves",
+       "d": "Changing E makes B and changing B makes E — self-sustaining electromagnetic waves travelling at c = 1/√(μ₀ε₀) ≈ 3.0×10⁸ m/s, the speed of light."
+      }
+     ],
+     "formulas": [
+      {
+       "n": "Inductor EMF",
+       "e": "EMF = − L dI/dt",
+       "note": "L in henries; opposes the change in current."
+      },
+      {
+       "n": "Energy in an inductor",
+       "e": "U = ½ L I²",
+       "note": "Mirrors ½CV² for a capacitor."
+      },
+      {
+       "n": "Resonant frequency",
+       "e": "f₀ = 1 / (2 π √(L C))",
+       "note": "Where X_L = X_C, maximum current in series RLC."
+      },
+      {
+       "n": "RMS values",
+       "e": "V_rms = V_peak / √2",
+       "note": "'120 V' mains is an RMS value."
+      },
+      {
+       "n": "Speed of light from constants",
+       "e": "c = 1 / √(μ₀ ε₀)",
+       "note": "≈ 3.0×10⁸ m/s."
+      }
+     ],
+     "example": {
+      "problem": "A series RLC circuit has L = 20 mH and C = 5.0 μF. Find the resonant frequency.",
+      "steps": [
+       "LC = (20×10⁻³)(5.0×10⁻⁶) = 1.0×10⁻⁷ s².",
+       "√(LC) = √(1.0×10⁻⁷) = 3.16×10⁻⁴ s.",
+       "f₀ = 1/(2π√(LC)) = 1/(2π × 3.16×10⁻⁴).",
+       "f₀ ≈ 1/(1.986×10⁻³) ≈ 503 Hz."
+      ],
+      "answer": "f₀ ≈ 503 Hz — at this frequency the series circuit's impedance is minimum and current is maximum."
+     },
+     "traps": [
+      "Using peak instead of RMS values in power calculations (P = V_rms I_rms).",
+      "Forgetting the √ in the resonant-frequency formula, or mixing ω and f.",
+      "Treating inductor and capacitor reactances as additive rather than opposite (X_L − X_C)."
+     ],
+     "practice": [
+      {
+       "q": "What is the RMS voltage of a 170 V peak AC signal?",
+       "a": "V_rms = 170/√2 ≈ 120 V."
+      },
+      {
+       "q": "A transformer has 100 primary and 500 secondary turns, with 120 V in. Output?",
+       "a": "V_s = V_p N_s/N_p = 120 × 500/100 = 600 V (a step-up transformer)."
+      }
+     ]
+    }
+   ]
+  },
+  {
    "code": "CCD-101",
    "title": "Character, Career and Self Development",
    "short": "Career & Self Dev",
    "credits": 2,
-   "accent": "#0f766e",
+   "accent": "#52525b",
    "blurb": "Engineering ethics, professional communication, teamwork, and career readiness.",
    "units": [
     {
@@ -354,7 +1333,7 @@
    "title": "Modeling and Design",
    "short": "Modeling & Design",
    "credits": 3,
-   "accent": "#4f46e5",
+   "accent": "#71717a",
    "blurb": "The engineering design process, visualization, CAD solid modeling, and engineering drawings.",
    "units": [
     {
@@ -689,7 +1668,7 @@
    "title": "Static Modeling of Mechanical Systems (Statics)",
    "short": "Statics / Mech Systems",
    "credits": 3,
-   "accent": "#b45309",
+   "accent": "#3f3f46",
    "blurb": "Equilibrium of particles and rigid bodies, trusses, frames, friction, centroids and moments of inertia.",
    "units": [
     {
@@ -1160,7 +2139,7 @@
    "title": "Engineering Materials",
    "short": "Engineering Materials",
    "credits": 3,
-   "accent": "#7c3aed",
+   "accent": "#a1a1aa",
    "blurb": "Structure–property relationships, mechanical testing, phase diagrams, failure, and materials selection.",
    "units": [
     {
@@ -1617,6 +2596,274 @@
   }
  ],
  "quiz": {
+  "MTH-202": [
+   {
+    "unit": "mth-1",
+    "q": "∫ x cos x dx is best done by:",
+    "opts": [
+     "u-substitution",
+     "Integration by parts (u = x)",
+     "Partial fractions",
+     "Trig substitution"
+    ],
+    "answer": 1,
+    "explain": "A polynomial times a trig function → by parts with u = x (algebraic before trig in LIATE)."
+   },
+   {
+    "unit": "mth-1",
+    "q": "∫ dx/x equals:",
+    "opts": [
+     "x⁻²/(−2) + C",
+     "ln|x| + C",
+     "e^x + C",
+     "x + C"
+    ],
+    "answer": 1,
+    "explain": "The antiderivative of 1/x is ln|x|; the absolute value handles negative x."
+   },
+   {
+    "unit": "mth-2",
+    "q": "The improper integral ∫₁^∞ x^(−p) dx converges when:",
+    "opts": [
+     "p > 1",
+     "p < 1",
+     "p = 1",
+     "always"
+    ],
+    "answer": 0,
+    "explain": "p-integral test: converges iff p > 1; diverges for p ≤ 1 (harmonic at p = 1)."
+   },
+   {
+    "unit": "mth-2",
+    "q": "The volume of revolution (disk method) uses the formula:",
+    "opts": [
+     "V = π∫R² dx",
+     "V = 2π∫R dx",
+     "V = ∫R dx",
+     "V = π∫R dx"
+    ],
+    "answer": 0,
+    "explain": "Disks integrate πR² over the axis; shells use 2π(radius)(height)."
+   },
+   {
+    "unit": "mth-3",
+    "q": "If lim aₙ ≠ 0, the series Σaₙ:",
+    "opts": [
+     "converges",
+     "diverges",
+     "is inconclusive",
+     "equals zero"
+    ],
+    "answer": 1,
+    "explain": "The nth-term (divergence) test — nonzero limit ⇒ divergence. It cannot prove convergence."
+   },
+   {
+    "unit": "mth-3",
+    "q": "The harmonic series Σ1/n:",
+    "opts": [
+     "converges to 1",
+     "diverges",
+     "converges to π²/6",
+     "oscillates"
+    ],
+    "answer": 1,
+    "explain": "p = 1 is the boundary case: the harmonic series diverges (the sum grows like ln n)."
+   },
+   {
+    "unit": "mth-4",
+    "q": "The Maclaurin series for eˣ is:",
+    "opts": [
+     "Σ xⁿ/n!",
+     "Σ (−1)ⁿxⁿ/n!",
+     "Σ xⁿ",
+     "Σ n xⁿ"
+    ],
+    "answer": 0,
+    "explain": "All derivatives of eˣ are 1 at 0, giving Σxⁿ/n!, convergent for all x."
+   },
+   {
+    "unit": "mth-4",
+    "q": "Applying the ratio test and getting L = 1 means:",
+    "opts": [
+     "converges",
+     "diverges",
+     "inconclusive",
+     "equals 0"
+    ],
+    "answer": 2,
+    "explain": "L = 1 is the inconclusive case — use a different test (comparison, integral, alternating)."
+   },
+   {
+    "unit": "mth-6",
+    "q": "Solve dy/dx = ky (k > 0). The solution is:",
+    "opts": [
+     "y = y₀ + kx",
+     "y = y₀ e^{kx}",
+     "y = kx²",
+     "y = sin(kx)"
+    ],
+    "answer": 1,
+    "explain": "Separate dy/y = k dx → ln y = kx + C → y = y₀e^{kx} (exponential growth)."
+   },
+   {
+    "unit": "mth-6",
+    "q": "The integrating factor for y′ + P(x)y = Q(x) is:",
+    "opts": [
+     "e^{∫P dx}",
+     "e^{∫Q dx}",
+     "∫P dx",
+     "1/P"
+    ],
+    "answer": 0,
+    "explain": "μ = e^{∫P(x)dx} makes the left side (μy)′, which then integrates directly."
+   }
+  ],
+  "PHY-202": [
+   {
+    "unit": "phy-1",
+    "q": "Coulomb's law states the force between two point charges is proportional to:",
+    "opts": [
+     "q₁q₂/r",
+     "q₁q₂/r²",
+     "r²/q₁q₂",
+     "q₁+q₂"
+    ],
+    "answer": 1,
+    "explain": "F = kq₁q₂/r² — inverse-square in distance."
+   },
+   {
+    "unit": "phy-1",
+    "q": "The electric field of a point charge falls off as:",
+    "opts": [
+     "1/r",
+     "1/r²",
+     "1/r³",
+     "constant"
+    ],
+    "answer": 1,
+    "explain": "E = kq/r²; a dipole's field falls off faster, as 1/r³."
+   },
+   {
+    "unit": "phy-2",
+    "q": "Gauss's law relates the net flux through a closed surface to:",
+    "opts": [
+     "the surface area",
+     "the enclosed charge / ε₀",
+     "the field outside",
+     "the potential"
+    ],
+    "answer": 1,
+    "explain": "∮E·dA = Q_enc/ε₀; charges outside contribute zero net flux."
+   },
+   {
+    "unit": "phy-2",
+    "q": "The electric field of an infinite charged plane is:",
+    "opts": [
+     "σ/(2ε₀), uniform",
+     "λ/(2πε₀r)",
+     "kq/r²",
+     "zero"
+    ],
+    "answer": 0,
+    "explain": "Uniform σ/(2ε₀), independent of distance from the sheet."
+   },
+   {
+    "unit": "phy-3",
+    "q": "The capacitance of a parallel-plate capacitor is:",
+    "opts": [
+     "C = ε₀κA/d",
+     "C = QV",
+     "C = d/(ε₀A)",
+     "C = ε₀d/A"
+    ],
+    "answer": 0,
+    "explain": "C = ε₀κA/d — more area or a dielectric raises it, a bigger gap lowers it."
+   },
+   {
+    "unit": "phy-3",
+    "q": "Energy stored in a capacitor is:",
+    "opts": [
+     "½CV²",
+     "CV",
+     "CV²",
+     "½C/V"
+    ],
+    "answer": 0,
+    "explain": "U = ½CV² (= ½QV = Q²/2C)."
+   },
+   {
+    "unit": "phy-4",
+    "q": "Two resistors in parallel have an equivalent resistance that is:",
+    "opts": [
+     "larger than either",
+     "smaller than either",
+     "equal to the larger",
+     "the sum"
+    ],
+    "answer": 1,
+    "explain": "Parallel resistance is smaller than the smallest branch (more paths for current)."
+   },
+   {
+    "unit": "phy-4",
+    "q": "Electric power can be written as:",
+    "opts": [
+     "P = IV",
+     "P = I V²",
+     "P = R/V",
+     "P = IV²"
+    ],
+    "answer": 0,
+    "explain": "P = IV, equivalently I²R or V²/R."
+   },
+   {
+    "unit": "phy-5",
+    "q": "The magnetic force on a moving charge is:",
+    "opts": [
+     "F = qvB cosθ",
+     "F = qvB sinθ",
+     "F = qE",
+     "F = BIL"
+    ],
+    "answer": 1,
+    "explain": "F = qvB sinθ; it is perpendicular to v, so it does no work."
+   },
+   {
+    "unit": "phy-5",
+    "q": "Faraday's law of induction states:",
+    "opts": [
+     "EMF = −N ΔΦ/Δt",
+     "EMF = N B A",
+     "EMF = μ₀nI",
+     "EMF = IR"
+    ],
+    "answer": 0,
+    "explain": "Induced EMF equals −N times the rate of change of magnetic flux (the minus is Lenz's law)."
+   },
+   {
+    "unit": "phy-6",
+    "q": "The resonant frequency of a series RLC circuit is:",
+    "opts": [
+     "1/(2π√(LC))",
+     "2π√(LC)",
+     "LC",
+     "1/(LC)"
+    ],
+    "answer": 0,
+    "explain": "f₀ = 1/(2π√(LC)), where X_L = X_C and current is maximum."
+   },
+   {
+    "unit": "phy-6",
+    "q": "The RMS value of a sinusoidal voltage with peak V₀ is:",
+    "opts": [
+     "V₀",
+     "V₀/√2",
+     "V₀√2",
+     "2V₀"
+    ],
+    "answer": 1,
+    "explain": "V_rms = V₀/√2 ≈ 0.707 V₀; '120 V' mains is RMS."
+   }
+  ],
   "CCD-101": [
    {
     "unit": "ccd-1",
