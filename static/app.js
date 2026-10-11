@@ -8,6 +8,11 @@ const API = '';                       // same origin
 const $  = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
+// An <img> cannot send an Authorization header, so the session token rides along
+// as a query param; the server still checks the note belongs to this user.
+const mediaUrl = (nid, name) =>
+  `/api/notes/${nid}/media/${encodeURIComponent(name)}?t=${encodeURIComponent(state.token || '')}`;
+
 const state = {
   token: localStorage.getItem('tp_token') || null,
   user: null,
@@ -1222,7 +1227,7 @@ async function viewNote() {
   const host = $('#kitHost');
   const show = tab => {
     $$('#kitTabs .tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
-    if (tab === 'cards') renderDeck(host, (kit && kit.cards) || [], n.title);
+    if (tab === 'cards') renderDeck(host, (kit && kit.cards) || [], n.title, nid);
     else renderNoteExam(host, nid, (kit && kit.exam) || []);
   };
   $$('#kitTabs .tab').forEach(b => b.addEventListener('click', () => show(b.dataset.tab)));
@@ -1235,7 +1240,7 @@ async function regenerateNote(nid, engine) {
   viewNote();
 }
 
-function renderDeck(host, cards, title) {
+function renderDeck(host, cards, title, nid) {
   if (!cards.length) { host.innerHTML = `<div class="empty">No flashcards in this set.</div>`; return; }
   // Kits stored before the quiz fields existed have no options: keep the plain
   // flip card rather than showing an unanswerable question.
@@ -1255,6 +1260,11 @@ function renderDeck(host, cards, title) {
           <span class="muted">${answered ? `${correct}/${answered} correct · ${pct}%` : 'Choose an option, then press Answer'}</span>
         </div>
         <div class="quiz-q">
+          ${c.image ? `<figure class="q-figure">
+            <img src="${mediaUrl(nid, c.image)}" loading="lazy"
+                 alt="Diagram accompanying this question${c.image_page ? ', from page ' + c.image_page : ''}" />
+            <figcaption>${c.image_page ? 'Diagram from page ' + c.image_page + ' of your notes' : 'Diagram from your notes'}</figcaption>
+          </figure>` : ''}
           <div class="qq-text">${esc(hasQ ? (c.prompt || c.front) : c.front)}</div>
           ${hasQ ? opts.map((o, j) => {
             const mark = revealed ? (j === c.answer ? ' opt-correct' : (j === pick ? ' opt-wrong' : '')) : '';
@@ -1329,6 +1339,11 @@ function renderNoteExam(host, nid, exam) {
     <form id="noteExamForm">
       ${exam.map((q, i) => `
         <div class="quiz-q" data-q="${i}">
+          ${q.image ? `<figure class="q-figure">
+            <img src="${mediaUrl(nid, q.image)}" loading="lazy"
+                 alt="Diagram for question ${i + 1}${q.image_page ? ', from page ' + q.image_page : ''}" />
+            <figcaption>${q.image_page ? 'Diagram from page ' + q.image_page + ' of your notes' : 'Diagram from your notes'}</figcaption>
+          </figure>` : ''}
           <div class="qq-text">${lvlBadge(q.level || 2)} ${i + 1}. ${esc(q.q)}</div>
           ${q.opts.map((o, j) => `<label class="opt"><input type="radio" name="q${i}" value="${j}" /> <span>${esc(o)}</span></label>`).join('')}
         </div>`).join('')}

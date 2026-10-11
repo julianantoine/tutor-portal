@@ -194,13 +194,128 @@ def clean_text(text: str) -> str:
     return text.strip()
 
 
+def clean_pages(pages: List[str]) -> List[str]:
+    """Boilerplate-stripped page texts, page boundaries preserved.
+
+    Kept per page (rather than joined) so a card can be traced back to the page
+    it came from — which is how a question gets the diagram that belongs to it.
+    """
+    if not pages:
+        return []
+    return [merge_wrapped_lines(p) if p else "" for p in strip_slide_boilerplate(pages)]
+
+
 def text_from_pdf_b64(b64: str) -> str:
     """Extract a PDF's text layer, minus slide footers/running headers."""
     pages = pdf_pages_b64(b64)
     if not pages:
         return ""
-    pages = strip_slide_boilerplate(pages)
-    return clean_text("\n\n".join(pages))
+    return clean_text("\n\n".join(clean_pages(pages)))
+
+
+def _shrink_image(data: bytes, min_side: int, max_side: int):
+    """-> (extension, bytes) or (None, None) if it is too small to be a diagram.
+
+    Big photos are downscaled and re-encoded so a deck of camera shots does not
+    bloat the note; Pillow missing is not fatal, the original is passed through.
+    """
+    try:
+        from PIL import Image
+        buf = io.BytesIO(data)
+        im = Image.open(buf)
+        w, h = im.size
+    except Exception:
+        return "png", data                      # unknown format: hand it over as-is
+    if max(w, h) < min_side:
+        return None, None                      # bullet, rule, logo
+    try:
+        if max(w, h) > max_side:
+            scale = max_side / float(max(w, h))
+            im = im.resize((max(1, int(w * scale)), max(1, int(h * scale))))
+        if im.mode in ("RGBA", "LA", "P"):
+            bg = Image.new("RGB", im.size, (255, 255, 255))
+            rgba = im.convert("RGBA")
+            bg.paste(rgba, mask=rgba.split()[-1])
+            im = bg
+        elif im.mode != "RGB":
+            im = im.convert("RGB")
+        out = io.BytesIO()
+        im.save(out, format="JPEG", quality=82, optimize=True)
+        return "jpg", out.getvalue()
+    except Exception:
+        return "png", data
+
+
+def pdf_images_b64(b64: str, min_side: int = 60, max_side: int = 1400) -> Dict[int, List[Dict[str, str]]]:
+    """Embedded images per PDF page: {0-based page index: [{'name','b64'}, ...]}.
+
+    Diagrams, charts and photos come back here; anything smaller than
+    ``min_side`` pixels (bullets, logos, rules) is dropped.
+    """
+    out: Dict[int, List[Dict[str, str]]] = {}
+    try:
+        from pypdf import PdfReader
+        raw = base64.b64decode(b64.split(",")[-1])
+        reader = PdfReader(io.BytesIO(raw))
+        for pi, page in enumerate(reader.pages[:80]):
+            try:
+                imgs = list(page.images)
+            except Exception:
+                continue
+            for ii, im in enumerate(imgs):
+                try:
+                    data = im.data
+                except Exception:
+                    continue
+                ext, payload = _shrink_image(data, min_side, max_side)
+                if not payload:
+                    continue
+                out.setdefault(pi, []).append({
+                    "name": f"p{pi + 1}_{ii}.{ext}",
+                    "b64": base64.b64encode(payload).decode(),
+                })
+    except Exception:
+        return {}
+    return out
+
+
+def _page_of(snippet: str, pages: List[str]) -> Optional[int]:
+    """Which page a card's text came from (0-based), or None."""
+    s = (snippet or "").strip()
+    if len(s) < 12:
+        return None
+    for i, p in enumerate(pages):
+        if s and s in (p or ""):
+            return i
+    return None
+
+
+def attach_diagrams(cards: List[Dict], pages: Optional[List[str]] = None,
+                    page_images: Optional[Dict[int, List[str]]] = None) -> List[Dict]:
+    """Point every card at the diagram on the page its text came from.
+
+    A question about a figure is unanswerable without the figure, so the image
+    travels with the card and the study view renders it above the prompt.
+    """
+    if not pages or not page_images:
+        return cards
+    for c in cards:
+        probe = c.get("front") or ""
+        if c.get("source") == "cloze":
+            probe = probe.replace("_____", c.get("back", ""))
+        pi = _page_of(probe, pages)
+        if pi is None:
+            pi = _page_of(c.get("back", ""), pages)
+        if pi is None or pi not in page_images:
+            continue
+        names = page_images[pi]
+        if not names:
+            continue
+        c["image"] = names[0]
+        c["image_page"] = pi + 1
+        if len(names) > 1:
+            c["images"] = list(names)
+    return cards
 
 
 # --------------------------------------------------------------------------- #
@@ -755,8 +870,15 @@ def ai_kit(text: str, title: str, ollama_url: str, model: str,
 
 def build_kit(text: str, title: str = "Notes", engine: str = "auto",
               ollama_url: str = "http://localhost:11437",
-              model: str = "hermes3:latest", timeout: float = 240.0) -> Dict:
-    """Return {'cards', 'exam', 'engine', 'summary', 'fallback_reason'}."""
+              model: str = "hermes3:latest", timeout: float = 240.0,
+              pages: Optional[List[str]] = None,
+              page_images: Optional[Dict[int, List[str]]] = None) -> Dict:
+    """Return {'cards', 'exam', 'engine', 'summary', 'fallback_reason'}.
+
+    ``pages``/``page_images`` are the per-page text and the diagrams extracted
+    from the uploaded PDF, when there was one: they let a question carry the
+    diagram it is actually asking about.
+    """
     text = clean_text(text)
     if len(text.split()) < 25:
         raise ValueError("That looks like too little text — paste at least a few lines of notes.")
@@ -765,6 +887,7 @@ def build_kit(text: str, title: str = "Notes", engine: str = "auto",
         kit = ai_kit(text, title, ollama_url, model, timeout=timeout)
         if kit:
             kit["cards"] = attach_quiz(kit["cards"], text)
+            _attach_diagrams_and_exam_images(kit, pages, page_images)
             kit["summary"] = (f"{len(kit['cards'])} flashcards and {len(kit['exam'])} exam "
                               f"questions written by your local tutor model.")
             kit["fallback_reason"] = None
@@ -775,6 +898,25 @@ def build_kit(text: str, title: str = "Notes", engine: str = "auto",
 
     kit = rules_kit(text)
     kit["cards"] = attach_quiz(kit["cards"], text)
+    _attach_diagrams_and_exam_images(kit, pages, page_images)
     kit["fallback_reason"] = None if engine == "rules" else \
         "Local model unavailable or too slow, so these were built offline by the rules engine."
+    return kit
+
+
+def _attach_diagrams_and_exam_images(kit: Dict, pages, page_images) -> Dict:
+    """Cards get their page's diagram; exam questions inherit it from the card
+    they were built from, so a question about a figure shows the figure."""
+    cards = kit.get("cards") or []
+    attach_diagrams(cards, pages, page_images)
+    by_front = {c.get("front"): c for c in cards if c.get("image")}
+    for q in kit.get("exam") or []:
+        question = q.get("q") or ""
+        for front, c in by_front.items():
+            if front and front in question:
+                q["image"] = c["image"]
+                q["image_page"] = c.get("image_page")
+                if c.get("images"):
+                    q["images"] = c["images"]
+                break
     return kit

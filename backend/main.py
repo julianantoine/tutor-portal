@@ -13,7 +13,9 @@ Run:  python3 -m uvicorn backend.main:app --host 0.0.0.0 --port 8950
 """
 
 import json
+import base64
 import os
+import shutil
 import sys
 import sqlite3
 import hashlib
@@ -48,6 +50,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 DATA_DIR.mkdir(exist_ok=True)
 DB_PATH = DATA_DIR / "tutor.db"
+
+# diagrams pulled out of uploaded PDFs, and the page map that ties them to cards
+MEDIA_DIR = DATA_DIR / "note_media"
+MEDIA_DIR.mkdir(exist_ok=True)
 
 STATIC_DIR = BASE_DIR / "static"
 
@@ -958,6 +964,47 @@ def _note_row(con, nid: int, user_id: int):
     ).fetchone()
 
 
+def _save_media(nid: int, pages: List[str], pdf_images: dict) -> int:
+    """Persist a PDF's diagrams plus the page map that ties text to them.
+
+    Stored on disk rather than in the row so a deck of photos does not bloat the
+    database or every kit payload. Returns how many images were written.
+    """
+    if not pdf_images:
+        return 0
+    d = MEDIA_DIR / str(nid)
+    d.mkdir(parents=True, exist_ok=True)
+    page_map: dict = {}
+    for pi, imgs in pdf_images.items():
+        for im in imgs:
+            name = os.path.basename(im.get("name") or "")
+            if not name:
+                continue
+            try:
+                (d / name).write_bytes(base64.b64decode(im["b64"]))
+            except Exception:
+                continue
+            page_map.setdefault(str(pi), []).append(name)
+    if not page_map:
+        return 0
+    (d / "pages.json").write_text(json.dumps({"pages": pages, "images": page_map}))
+    return sum(len(v) for v in page_map.values())
+
+
+def _load_media(nid: int):
+    """-> (per-page text, {0-based page: [filenames]}), or (None, None)."""
+    f = MEDIA_DIR / str(nid) / "pages.json"
+    if not f.is_file():
+        return None, None
+    try:
+        data = json.loads(f.read_text())
+        pages = data.get("pages") or []
+        images = {int(k): list(v) for k, v in (data.get("images") or {}).items()}
+        return pages, images
+    except Exception:
+        return None, None
+
+
 def _run_generation(nid: int, engine: str):
     """Worker: build the study kit and record the outcome on the note row."""
     _mark_inflight(nid, True)
@@ -968,10 +1015,12 @@ def _run_generation(nid: int, engine: str):
             return
         started = time.time()
         try:
+            media_pages, media_images = _load_media(nid)
             kit = notes_engine.build_kit(
                 row["body"], row["title"], engine=engine,
                 ollama_url=OLLAMA_URL, model=TUTOR_MODEL,
                 timeout=NOTES_AI_TIMEOUT,
+                pages=media_pages, page_images=media_images,
             )
             with db() as con:
                 con.execute(
@@ -1025,11 +1074,17 @@ def list_notes(user=Depends(current_user)):
 @app.post("/api/notes")
 def create_note(body: NoteIn, user=Depends(current_user)):
     text = body.text or ""
+    pages: List[str] = []
+    pdf_images: dict = {}
     if body.pdf_b64:
-        extracted = notes_engine.text_from_pdf_b64(body.pdf_b64)
+        # cleaned page by page: the page boundaries are what let a question find
+        # the diagram that belongs to it
+        pages = notes_engine.clean_pages(notes_engine.pdf_pages_b64(body.pdf_b64))
+        extracted = notes_engine.clean_text("\n\n".join(pages))
         if not extracted.strip():
             raise HTTPException(400, "No text layer in that PDF — if it's a scan, paste the "
                                      "notes as text instead.")
+        pdf_images = notes_engine.pdf_images_b64(body.pdf_b64)
         text = (text + "\n\n" + extracted).strip() if text.strip() else extracted
     text = notes_engine.clean_text(text)
     words = len(text.split())
@@ -1050,7 +1105,8 @@ def create_note(body: NoteIn, user=Depends(current_user)):
         nid = cur.lastrowid
     _mark_inflight(nid, True)
     NOTES_EXEC.submit(_run_generation, nid, engine)
-    return {"ok": True, "id": nid, "words": words, "status": "running"}
+    return {"ok": True, "id": nid, "words": words, "status": "running",
+            "diagrams": _save_media(nid, pages, pdf_images)}
 
 
 @app.get("/api/notes/{nid}")
@@ -1130,6 +1186,33 @@ def submit_note_exam(nid: int, body: ExamIn, user=Depends(current_user)):
             "results": results, "note_id": nid}
 
 
+@app.get("/api/notes/{nid}/media/{name}")
+def note_media(nid: int, name: str, t: Optional[str] = None,
+               authorization: Optional[str] = Header(None)):
+    """Serve a diagram that belongs to a note.
+
+    An <img> tag cannot send an Authorization header, so the session token is
+    also accepted as ?t=. The ownership check below is what actually protects the
+    file — holding a token gets you nothing unless the note is yours.
+    """
+    token = ""
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+    if not token and t:
+        token = t.strip()
+    if not token:
+        raise HTTPException(401, "Not authenticated")
+    with db() as con:
+        s = con.execute("SELECT user_id FROM sessions WHERE token=?", (token,)).fetchone()
+        n = con.execute("SELECT user_id FROM notes WHERE id=?", (nid,)).fetchone()
+    if not s or not n or s["user_id"] != n["user_id"]:
+        raise HTTPException(403, "Not your note")
+    path = MEDIA_DIR / str(nid) / os.path.basename(name)
+    if not path.is_file():
+        raise HTTPException(404, "No such image")
+    return FileResponse(path)
+
+
 @app.delete("/api/notes/{nid}")
 def delete_note(nid: int, user=Depends(current_user)):
     with db() as con:
@@ -1138,6 +1221,7 @@ def delete_note(nid: int, user=Depends(current_user)):
             raise HTTPException(404, "Notes not found")
         con.execute("DELETE FROM study_kits WHERE note_id=?", (nid,))
         con.execute("DELETE FROM notes WHERE id=?", (nid,))
+    shutil.rmtree(MEDIA_DIR / str(nid), ignore_errors=True)   # its diagrams go too
     return {"ok": True}
 
 
