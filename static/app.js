@@ -60,36 +60,150 @@ const levelLegend = () => `<div class="level-legend">
 
 /* ================================================================ AUTH == */
 let authMode = 'login';
+let paidSession = null;        // filled in when the browser returns from Stripe
+let planInfo = null;
+
+function authMsg(text, isError) {
+  const el = $('#authErr');
+  el.textContent = text;
+  el.hidden = !text;
+  el.style.color = isError ? '' : 'var(--green)';
+}
 
 function setAuthMode(mode) {
   authMode = mode;
   $$('#authSeg .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
-  $('#authSubmit').textContent = mode === 'login' ? 'Sign in' : 'Create account';
+  const isDemo = mode === 'demo';
+  const isSubscribe = mode === 'subscribe';
+  const isFinish = mode === 'finish';          // came back from a paid checkout
+
+  $('#passField').hidden = isSubscribe || isDemo;
+  // a hidden input that is still `required` silently blocks the submit
+  $('#authPass').required = !(isSubscribe || isDemo);
+  $('#authPass').disabled = isSubscribe || isDemo;
+  $('#demoCourseField').hidden = !isDemo;
+  $('#demoCourse').required = isDemo;
+  $('#userLabel').textContent = isDemo ? 'Your email' : 'Email';
+  $('#passLabel').textContent = isFinish ? 'Choose a password' : 'Password';
+  $('#authUser').disabled = isFinish;
+  if (isFinish) $('#authUser').value = (paidSession && paidSession.email) || '';
+
+  const price = (planInfo && planInfo.label) || '$29.99/month';
+  const hours = (planInfo && planInfo.demo_hours) || 24;
+  const notes = {
+    subscribe: `Flat ${price}. Cancel anytime. You pay first, then set your password.`,
+    finish: `Payment confirmed — set a password and your account is ready.`,
+    demo: `One subject, full access for ${hours} hours. One demo per email address. No card needed.`,
+    login: '',
+  };
+  const note = $('#planNote');
+  note.textContent = notes[mode] || '';
+  note.hidden = !note.textContent;
+  $('#manageBtn').hidden = mode !== 'login';
+
+  const labels = { login: 'Sign in', subscribe: 'Continue to payment →',
+                   demo: 'Start my free demo', finish: 'Create my account' };
+  $('#authSubmit').textContent = labels[mode] || 'Continue';
 }
 
 $('#authSeg').addEventListener('click', e => {
   const b = e.target.closest('.seg-btn');
-  if (b) setAuthMode(b.dataset.mode);
+  if (b) { authMsg(''); setAuthMode(b.dataset.mode); }
+});
+
+async function loadPlan() {
+  try {
+    planInfo = await api('/api/plan');
+    const sel = $('#demoCourse');
+    sel.innerHTML = (planInfo.courses || [])
+      .map(c => `<option value="${esc(c.code)}">${esc(c.short)} — ${esc(c.title)}</option>`).join('');
+    const price = planInfo.label || '$29.99/month';
+    $('#authHint').innerHTML =
+      `<strong>${esc(price)} — flat monthly, cancel anytime</strong>` +
+      `<div>Subscribe to open an account. Or start a free demo on one subject.</div>`;
+  } catch { /* keep the static hint */ }
+}
+
+$('#manageBtn').addEventListener('click', async () => {
+  const email = ($('#authUser').value || '').trim() || prompt('The email you subscribed with:') || '';
+  if (!email) return;
+  authMsg('');
+  try {
+    const r = await api('/api/billing/portal', { method: 'POST', body: JSON.stringify({ email }) });
+    location.href = r.url;
+  } catch (ex) { authMsg(ex.message, true); }
 });
 
 $('#authForm').addEventListener('submit', async e => {
   e.preventDefault();
-  const err = $('#authErr'); err.hidden = true;
+  authMsg('');
   const identifier = $('#authUser').value.trim();
   const password = $('#authPass').value;
   const btn = $('#authSubmit'); btn.disabled = true; btn.textContent = '…';
   try {
+    if (authMode === 'subscribe') {
+      const r = await api('/api/subscribe', { method: 'POST', body: JSON.stringify({ email: identifier }) });
+      location.href = r.url;                       // to Stripe — pay first
+      return;
+    }
+    if (authMode === 'demo') {
+      const r = await api('/api/demo', { method: 'POST', body: JSON.stringify({
+        email: identifier, course_code: $('#demoCourse').value }) });
+      state.token = r.token;
+      localStorage.setItem('tp_token', r.token);
+      state.user = r.user;
+      await enterApp();
+      return;
+    }
+    if (authMode === 'finish') {
+      const r = await api('/api/register', { method: 'POST', body: JSON.stringify({
+        identifier, password, session_id: paidSession && paidSession.session_id }) });
+      state.token = r.token;
+      localStorage.setItem('tp_token', r.token);
+      state.user = r.user;
+      await enterApp();
+      return;
+    }
     const data = await api('/api/' + authMode, { method: 'POST', body: JSON.stringify({ identifier, password }) });
     state.token = data.token;
     localStorage.setItem('tp_token', data.token);
     state.user = data.user;
     await enterApp();
   } catch (ex) {
-    err.textContent = ex.message; err.hidden = false;
+    authMsg(ex.message, true);
   } finally {
     btn.disabled = false; setAuthMode(authMode);
   }
 });
+
+/* the browser comes back from Stripe with ?checkout=cs_... — confirm the
+   payment server-side, then let them pick a password */
+async function handleCheckoutReturn() {
+  const q = new URLSearchParams(location.search);
+  if (q.get('canceled')) {
+    authMsg('Payment cancelled — nothing was charged.');
+    history.replaceState(null, '', '/');
+  }
+  const sid = q.get('checkout');
+  if (!sid) return;
+  history.replaceState(null, '', '/');
+  try {
+    const r = await api('/api/checkout/status', { method: 'POST', body: JSON.stringify({ session_id: sid }) });
+    if (r.claimed) {
+      authMsg('That payment already has an account — please sign in.');
+      setAuthMode('login');
+      return;
+    }
+    if (r.paid) {
+      paidSession = { session_id: sid, email: r.email };
+      setAuthMode('finish');
+      return;
+    }
+    authMsg('That payment is not confirmed yet. If you were charged, reload in a moment.');
+  } catch (ex) {
+    authMsg(ex.message, true);
+  }
+}
 
 function logout(silent) {
   if (state.token && !silent) api('/api/logout', { method: 'POST' }).catch(() => {});
@@ -103,7 +217,12 @@ $('#logoutBtn').addEventListener('click', () => logout(false));
 /* =============================================================== BOOT == */
 async function boot() {
   renderAsideCourses();
-  if (!state.token) { $('#authView').hidden = false; return; }
+  await loadPlan();
+  if (!state.token) {
+    $('#authView').hidden = false;
+    await handleCheckoutReturn();
+    return;
+  }
   try {
     const me = await api('/api/me');
     state.user = me.user;

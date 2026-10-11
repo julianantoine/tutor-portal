@@ -209,6 +209,42 @@ Two guards keep the questions fair, both in `attach_quiz()`:
 Kits generated before this existed have no options and fall back to the plain
 flip card, so old notes keep working.
 
+## Pricing and access
+
+**The customer pays before an account exists.** There is no free sign-up:
+
+1. the visitor enters their email on the **Subscribe** tab and is sent to Stripe
+   Checkout (`POST /api/subscribe`);
+2. Stripe returns them to `/?checkout=cs_...`, the app confirms the session with
+   Stripe server-side (`POST /api/checkout/status`) and only then asks for a
+   password (`POST /api/register`, which re-verifies the session);
+3. the sign-in address must be the address that paid, so the subscription stays
+   attached to the account.
+
+`$29.99/month`, cancel anytime — the **Manage or cancel my subscription** link
+opens Stripe's billing portal (`POST /api/billing/portal`). Cancelling or a
+failed payment flips `subscribers.status` and sign-in is refused with
+"your subscription is not active".
+
+`POST /api/billing/webhook` keeps the records honest. It verifies the
+`Stripe-Signature` header (HMAC-SHA256 over `{timestamp}.{body}`, 5-minute
+tolerance) before touching anything, and handles `checkout.session.completed`,
+`customer.subscription.updated|deleted` and `invoice.payment_failed`.
+
+### The free demo
+
+`POST /api/demo` with an email and a subject code:
+
+* **one demo per email address** — the address is recorded in `demo_uses` and a
+  second attempt is refused;
+* **one subject only** — the account is scoped to the chosen course; `/api/courses`
+  hides the rest and the course-scoped endpoints return 403 for anything else;
+* **runs out** — the session expires after `DEMO_HOURS` (24 by default).
+
+Accounts created before billing existed (the seeded `student`/`tutor`, any earlier
+test accounts) have no `subscriber_email` and are grandfathered, so they are not
+locked out by this change.
+
 ## Deployment (Railway + custom domain)
 
 Live at **https://app.collegegradelifter.com** — Railway project `gradeboost`,

@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="styles.css?v=8" />
+<link rel="stylesheet" href="styles.css?v=9" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2327272a'/%3E%3Ctext x='16' y='22' font-family='Inter,sans-serif' font-size='16' font-weight='700' fill='white' text-anchor='middle'%3E%E2%9C%B3%3C/text%3E%3C/svg%3E" />
 </head>
 <body>
@@ -27,27 +27,30 @@
 
     <div class="seg" id="authSeg">
       <button class="seg-btn active" data-mode="login">Sign in</button>
-      <button class="seg-btn" data-mode="register">Create account</button>
+      <button class="seg-btn" data-mode="subscribe">Subscribe</button>
+      <button class="seg-btn" data-mode="demo">Free demo</button>
     </div>
 
     <form id="authForm" autocomplete="on">
       <label class="field">
-        <span>Username</span>
-        <input id="authUser" type="text" autocomplete="username" placeholder="e.g. student" required />
+        <span id="userLabel">Email</span>
+        <input id="authUser" type="email" autocomplete="email" placeholder="you@example.com" required />
       </label>
-      <label class="field">
-        <span>Password</span>
-        <input id="authPass" type="password" autocomplete="current-password" placeholder="••••••••" required />
+      <label class="field" id="passField">
+        <span id="passLabel">Password</span>
+        <input id="authPass" type="password" autocomplete="current-password" placeholder="At least 8 characters" required />
       </label>
+      <label class="field" id="demoCourseField" hidden>
+        <span>Pick the one subject for your demo</span>
+        <select id="demoCourse"></select>
+      </label>
+      <p class="plan-note" id="planNote" hidden></p>
       <div id="authErr" class="err" hidden></div>
       <button type="submit" id="authSubmit" class="btn btn-primary btn-block">Sign in</button>
     </form>
 
-    <div class="demo-hint">
-      <strong>Demo logins</strong>
-      <div><code>student / student</code> — the student view</div>
-      <div><code>tutor / tutor</code> — the tutor dashboard</div>
-    </div>
+    <div class="demo-hint" id="authHint"></div>
+    <button class="link-btn" id="manageBtn" hidden>Manage or cancel my subscription</button>
   </div>
   <div class="auth-aside">
     <div class="aside-inner">
@@ -115,6 +118,6 @@
   </div>
 </div>
 
-<script src="app.js?v=8"></script>
+<script src="app.js?v=9"></script>
 </body>
 </html>

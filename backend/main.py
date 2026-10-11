@@ -15,17 +15,19 @@ Run:  python3 -m uvicorn backend.main:app --host 0.0.0.0 --port 8950
 import json
 import base64
 import os
+import re
 import shutil
 import sys
 import sqlite3
 import hashlib
+import hmac
 import secrets
 import time
 import threading
 from contextlib import contextmanager, asynccontextmanager
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 
 # Make `import content` work whether this is run as `python3 backend/main.py`
@@ -60,6 +62,17 @@ STATIC_DIR = BASE_DIR / "static"
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11437")
 TUTOR_MODEL = os.environ.get("TUTOR_MODEL", "hermes3:latest")
 PORT = int(os.environ.get("PORT", "8950"))
+
+# ---- billing -------------------------------------------------------------- #
+# Pay before signing up: an account is only created after Stripe confirms a
+# subscription. The live key is a restricted key (checkout + read only).
+STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+STRIPE_PRICE_ID = os.environ.get("STRIPE_PRICE_ID", "")
+SITE_URL = os.environ.get("SITE_URL", "http://localhost:8950").rstrip("/")
+PLAN_PRICE = os.environ.get("PLAN_PRICE", "29.99")
+PLAN_INTERVAL = os.environ.get("PLAN_INTERVAL", "month")
+DEMO_HOURS = int(os.environ.get("DEMO_HOURS", "24"))
 
 
 @asynccontextmanager
@@ -207,9 +220,44 @@ def db():
         con.close()
 
 
+BILLING_SCHEMA = """
+CREATE TABLE IF NOT EXISTS subscribers (
+    email TEXT PRIMARY KEY,
+    stripe_customer TEXT,
+    stripe_subscription TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    claimed_by INTEGER,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS demo_uses (
+    email TEXT PRIMARY KEY,
+    course_code TEXT,
+    user_id INTEGER,
+    created_at TEXT NOT NULL,
+    expires_at TEXT
+);
+"""
+
+
+def _migrate(con):
+    """Add columns that arrived after the first release.
+
+    SQLite has no ADD COLUMN IF NOT EXISTS, so the duplicate-column error is the
+    expected outcome once the column is there.
+    """
+    for col, decl in [("subscriber_email", "TEXT"), ("demo_until", "TEXT")]:
+        try:
+            con.execute(f"ALTER TABLE users ADD COLUMN {col} {decl}")
+        except Exception:
+            pass
+
+
 def init_db():
     with db() as con:
         con.executescript(SCHEMA)
+        con.executescript(BILLING_SCHEMA)
+        _migrate(con)
         # seed tutor + student accounts once
         row = con.execute("SELECT COUNT(*) c FROM users").fetchone()
         if row["c"] == 0:
@@ -303,28 +351,286 @@ def require_tutor(user=Depends(current_user)):
     return user
 
 
+# --------------------------------------------------------------------------- #
+# Billing — the customer pays BEFORE an account exists
+# --------------------------------------------------------------------------- #
+
+class SubscribeIn(BaseModel):
+    email: str
+
+
+class SessionIn(BaseModel):
+    session_id: str
+
+
+class RegisterIn(BaseModel):
+    identifier: str
+    password: str
+    session_id: Optional[str] = None
+
+
+class DemoIn(BaseModel):
+    email: str
+    course_code: str
+
+
+class PortalIn(BaseModel):
+    email: str
+
+
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$")
+
+
+def _norm_email(s: str) -> str:
+    e = (s or "").strip().lower()
+    if not EMAIL_RE.match(e):
+        raise HTTPException(400, "That does not look like an email address.")
+    return e
+
+
+def billing_ready() -> bool:
+    return bool(STRIPE_SECRET_KEY and STRIPE_PRICE_ID)
+
+
+def _stripe(method: str, path: str, data=None):
+    if not billing_ready():
+        raise HTTPException(503, "Payments are not configured on this server yet.")
+    try:
+        r = httpx.request(method, "https://api.stripe.com/v1/" + path, data=data,
+                          headers={"Authorization": "Bearer " + STRIPE_SECRET_KEY},
+                          timeout=30.0)
+    except Exception as e:
+        raise HTTPException(502, f"Could not reach the payment processor ({type(e).__name__}).")
+    if r.status_code >= 400:
+        detail = ""
+        try:
+            detail = (r.json().get("error") or {}).get("message", "")
+        except Exception:
+            pass
+        raise HTTPException(502, f"The payment processor rejected that request. {detail[:160]}")
+    return r.json()
+
+
+def _session_truth(session_id: str):
+    """What Stripe says actually happened, rather than what the redirect implies."""
+    sess = _stripe("GET", f"checkout/sessions/{session_id}")
+    paid = (sess.get("payment_status") in ("paid", "no_payment_required")
+            or sess.get("status") == "complete")
+    email = ((sess.get("customer_details") or {}).get("email")
+             or sess.get("customer_email") or "").strip().lower()
+    return sess, bool(paid), email
+
+
+def _upsert_subscriber(con, email, customer, subscription, status):
+    con.execute(
+        "INSERT INTO subscribers(email, stripe_customer, stripe_subscription, status, "
+        "created_at, updated_at) VALUES(?,?,?,?,?,?) "
+        "ON CONFLICT(email) DO UPDATE SET status=excluded.status, "
+        "stripe_customer=COALESCE(excluded.stripe_customer, subscribers.stripe_customer), "
+        "stripe_subscription=COALESCE(excluded.stripe_subscription, subscribers.stripe_subscription), "
+        "updated_at=excluded.updated_at",
+        (email, customer, subscription, status, now_iso(), now_iso()),
+    )
+
+
+def _course_scope(user) -> Optional[str]:
+    """A demo account is limited to the single subject it was started for."""
+    if not user.get("demo_until"):
+        return None
+    with db() as con:
+        r = con.execute("SELECT course_code FROM demo_uses WHERE user_id=?",
+                        (user["id"],)).fetchone()
+    return (r["course_code"] or "") if r else ""
+
+
+def _require_course(user, code: str):
+    scope = _course_scope(user)
+    if scope is not None and code != scope:
+        raise HTTPException(403, "The free demo covers one subject only — "
+                                 "subscribe to unlock the rest.")
+
+
+@app.get("/api/plan")
+def plan():
+    return {"price": PLAN_PRICE, "currency": "usd", "interval": PLAN_INTERVAL,
+            "label": f"${PLAN_PRICE}/{PLAN_INTERVAL}", "configured": billing_ready(),
+            "demo_hours": DEMO_HOURS,
+            "courses": [{"code": c["code"], "title": c["title"], "short": c["short"]}
+                        for c in content.COURSES]}
+
+
+@app.post("/api/subscribe")
+def subscribe(body: SubscribeIn):
+    """Start the subscription. This is what has to happen before signing up."""
+    email = _norm_email(body.email)
+    with db() as con:
+        row = con.execute("SELECT * FROM subscribers WHERE email=?", (email,)).fetchone()
+    if row and row["claimed_by"]:
+        raise HTTPException(409, "That email already has an account — just sign in.")
+    sess = _stripe("POST", "checkout/sessions", {
+        "mode": "subscription",
+        "line_items[0][price]": STRIPE_PRICE_ID,
+        "line_items[0][quantity]": 1,
+        "customer_email": email,
+        "success_url": f"{SITE_URL}/?checkout={{CHECKOUT_SESSION_ID}}",
+        "cancel_url": f"{SITE_URL}/?canceled=1",
+        "subscription_data[metadata][email]": email,
+        "branding_settings[display_name]": "CollegeGradeLifter",
+    })
+    with db() as con:
+        if row is None:
+            _upsert_subscriber(con, email, sess.get("customer"), None, "pending")
+    return {"url": sess["url"], "session_id": sess["id"]}
+
+
+@app.post("/api/checkout/status")
+def checkout_status(body: SessionIn):
+    """Confirm a payment the browser came back from, so a missed webhook does not
+    leave a paying customer locked out."""
+    sess, paid, email = _session_truth(body.session_id)
+    claimed = False
+    if email:
+        with db() as con:
+            row = con.execute("SELECT * FROM subscribers WHERE email=?", (email,)).fetchone()
+            claimed = bool(row and row["claimed_by"])
+            if paid and not claimed:
+                _upsert_subscriber(con, email, sess.get("customer"),
+                                   sess.get("subscription"), "active")
+    return {"paid": paid, "email": email, "claimed": claimed}
+
+
+@app.post("/api/demo")
+def start_demo(body: DemoIn):
+    """One free demo per email address, on one subject, for DEMO_HOURS."""
+    email = _norm_email(body.email)
+    course = content.course_by_code((body.course_code or "").strip())
+    if not course:
+        raise HTTPException(400, "Pick one of the listed subjects for the demo.")
+    with db() as con:
+        used = con.execute("SELECT * FROM demo_uses WHERE email=?", (email,)).fetchone()
+        if used:
+            raise HTTPException(409, "This email has already used the free demo — "
+                                     "subscribe to keep going.")
+        ident = "demo-" + hashlib.sha256(email.encode()).hexdigest()[:12]
+        salt = secrets.token_hex(8)
+        pw = secrets.token_urlsafe(18)
+        h = hash_pw(pw, salt)
+        expires = (datetime.now(timezone.utc) + timedelta(hours=DEMO_HOURS)).isoformat(timespec="seconds")
+        cur = con.execute(
+            "INSERT INTO users(identifier, pass_hash, salt, name, role, created_at, demo_until) "
+            "VALUES(?,?,?,?,?,?,?)",
+            (ident, h, salt, "Demo", "student", now_iso(), expires))
+        uid = cur.lastrowid
+        con.execute("INSERT INTO demo_uses(email, course_code, user_id, created_at, expires_at) "
+                    "VALUES(?,?,?,?,?)",
+                    (email, course["code"], uid, now_iso(), expires))
+        con.commit()
+        token = secrets.token_urlsafe(24)
+        con.execute("INSERT INTO sessions(token, user_id, created_at) VALUES(?,?,?)",
+                    (token, uid, now_iso()))
+        user = con.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
+    return {"token": token, "user": public_user(dict(user)), "expires_at": expires,
+            "course": {"code": course["code"], "title": course["title"],
+                       "short": course["short"]}}
+
+
+@app.post("/api/billing/portal")
+def billing_portal(body: PortalIn):
+    """Cancel (or update) the subscription — Stripe hosts the page."""
+    email = _norm_email(body.email)
+    with db() as con:
+        sub = con.execute("SELECT * FROM subscribers WHERE email=?", (email,)).fetchone()
+    if not sub or not sub["stripe_customer"]:
+        raise HTTPException(404, "No subscription found for that email.")
+    s = _stripe("POST", "billing_portal/sessions",
+                {"customer": sub["stripe_customer"], "return_url": f"{SITE_URL}/"})
+    return {"url": s["url"]}
+
+
+def _verify_stripe_sig(payload: bytes, header: str, secret: str, tolerance: int = 300) -> bool:
+    try:
+        parts = dict(p.split("=", 1) for p in (header or "").split(","))
+        ts, sig = int(parts["t"]), parts["v1"]
+    except Exception:
+        return False
+    expected = hmac.new(secret.encode(), f"{ts}".encode() + b"." + payload,
+                        hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, sig) and abs(time.time() - ts) <= tolerance
+
+
+@app.post("/api/billing/webhook")
+async def billing_webhook(request: Request):
+    payload = await request.body()
+    if not STRIPE_WEBHOOK_SECRET:
+        raise HTTPException(503, "Webhook secret is not configured.")
+    if not _verify_stripe_sig(payload, request.headers.get("stripe-signature", ""),
+                              STRIPE_WEBHOOK_SECRET):
+        raise HTTPException(400, "Bad signature")
+    try:
+        event = json.loads(payload or b"{}")
+    except Exception:
+        raise HTTPException(400, "Bad payload")
+    etype = event.get("type")
+    obj = (event.get("data") or {}).get("object") or {}
+    email = ((obj.get("customer_details") or {}).get("email")
+             or obj.get("customer_email")
+             or (obj.get("metadata") or {}).get("email") or "").strip().lower()
+    with db() as con:
+        if etype == "checkout.session.completed" and email:
+            _upsert_subscriber(con, email, obj.get("customer"), obj.get("subscription"), "active")
+        elif etype in ("customer.subscription.updated", "customer.subscription.deleted",
+                       "invoice.payment_failed"):
+            cust = obj.get("customer")
+            if etype == "invoice.payment_failed":
+                status = "past_due"
+            else:
+                raw = (obj.get("status") or "").lower()
+                status = "active" if raw in ("active", "trialing") else (
+                    "canceled" if raw in ("canceled", "unpaid", "incomplete_expired") else "past_due")
+            if etype == "customer.subscription.deleted":
+                status = "canceled"
+            if cust:
+                con.execute("UPDATE subscribers SET status=?, updated_at=? WHERE stripe_customer=?",
+                            (status, now_iso(), cust))
+    return {"received": True, "type": etype}
+
+
 # ---------------------------------------------------------------------------
 # Auth routes
 # ---------------------------------------------------------------------------
 
 @app.post("/api/register")
-def register(body: AuthIn):
-    ident = body.identifier.strip().lower()
-    if len(ident) < 3:
-        raise HTTPException(400, "Username must be at least 3 characters")
-    if len(body.password) < 4:
-        raise HTTPException(400, "Password must be at least 4 characters")
+def register(body: RegisterIn):
+    """Create an account — only after Stripe confirms a paid subscription."""
+    if not body.session_id:
+        raise HTTPException(402, "Subscribe first: an account is created once payment "
+                                 "is confirmed.")
+    sess, paid, email = _session_truth(body.session_id)
+    if not paid:
+        raise HTTPException(402, "That payment has not completed yet.")
+    ident = _norm_email(body.identifier)
+    if email and ident != email:
+        raise HTTPException(400, f"Use the address you paid with ({email}) as your sign-in "
+                                 f"email, so the subscription stays attached to it.")
+    if len(body.password) < 8:
+        raise HTTPException(400, "Use at least 8 characters for your password.")
     salt = secrets.token_hex(8)
     h = hash_pw(body.password, salt)
     with db() as con:
+        sub = con.execute("SELECT * FROM subscribers WHERE email=?", (ident,)).fetchone()
+        if sub and sub["claimed_by"]:
+            raise HTTPException(409, "That email already has an account — just sign in.")
         exists = con.execute("SELECT id FROM users WHERE identifier=?", (ident,)).fetchone()
         if exists:
-            raise HTTPException(409, "That username is taken")
+            raise HTTPException(409, "That email already has an account — just sign in.")
         cur = con.execute(
-            "INSERT INTO users(identifier, pass_hash, salt, name, role, created_at) VALUES(?,?,?,?,?,?)",
-            (ident, h, salt, body.identifier.strip(), "student", now_iso()),
+            "INSERT INTO users(identifier, pass_hash, salt, name, role, created_at, "
+            "subscriber_email) VALUES(?,?,?,?,?,?,?)",
+            (ident, h, salt, ident, "student", now_iso(), ident),
         )
         uid = cur.lastrowid
+        _upsert_subscriber(con, ident, sess.get("customer"), sess.get("subscription"), "active")
+        con.execute("UPDATE subscribers SET claimed_by=? WHERE email=?", (uid, ident))
         con.commit()  # release the write lock before issuing a session
         token = secrets.token_urlsafe(24)
         con.execute(
@@ -341,7 +647,16 @@ def login(body: AuthIn):
     with db() as con:
         r = con.execute("SELECT * FROM users WHERE identifier=?", (ident,)).fetchone()
         if not r or hash_pw(body.password, r["salt"]) != r["pass_hash"]:
-            raise HTTPException(401, "Wrong username or password")
+            raise HTTPException(401, "Wrong email or password")
+        # demo accounts run out; paid accounts need a live subscription
+        if r["demo_until"] and str(r["demo_until"]) < now_iso():
+            raise HTTPException(402, "This free demo has finished. Subscribe to keep going.")
+        if r["subscriber_email"]:
+            sub = con.execute("SELECT status FROM subscribers WHERE email=?",
+                              (r["subscriber_email"],)).fetchone()
+            if not sub or sub["status"] != "active":
+                raise HTTPException(402, "Your subscription is not active — restart it to "
+                                         "sign back in.")
         token = secrets.token_urlsafe(24)
         con.execute(
             "INSERT INTO sessions(token, user_id, created_at) VALUES(?,?,?)",
@@ -442,8 +757,11 @@ def upsert_progress(user_id, unit_id, mastery=None, quiz=False, passed=False, pr
 @app.get("/api/courses")
 def courses(user=Depends(current_user)):
     prog = get_progress(user["id"])
+    scope = _course_scope(user)          # a demo account sees exactly one subject
     out = []
     for c in content.COURSES:
+        if scope is not None and c["code"] != scope:
+            continue
         units = []
         for u in c["units"]:
             p = prog.get(u["id"], {})
@@ -461,6 +779,7 @@ def course_detail(code: str, user=Depends(current_user)):
     c = content.course_by_code(code)
     if not c:
         raise HTTPException(404, "Course not found")
+    _require_course(user, code)
     prog = get_progress(user["id"])
     units = []
     for u in c["units"]:
@@ -474,6 +793,7 @@ def course_detail(code: str, user=Depends(current_user)):
 
 @app.get("/api/flashcards/{code}")
 def flashcards(code: str, user=Depends(current_user)):
+    _require_course(user, code)
     cards = content.flashcards_for(code)
     if not cards:
         raise HTTPException(404, "No flashcards for that course")
@@ -482,6 +802,7 @@ def flashcards(code: str, user=Depends(current_user)):
 
 @app.get("/api/quiz/{code}/{unit_id}")
 def quiz(code: str, unit_id: str, user=Depends(current_user)):
+    _require_course(user, code)
     qs = content.quiz_for_unit(code, unit_id)
     if not qs:
         raise HTTPException(404, "No quiz for that unit")
@@ -494,6 +815,7 @@ def quiz(code: str, unit_id: str, user=Depends(current_user)):
 
 @app.post("/api/quiz/submit")
 def quiz_submit(body: QuizIn, user=Depends(current_user)):
+    _require_course(user, body.course_code)
     bank = content.quiz_for_unit(body.course_code, body.unit_id)
     if not bank:
         raise HTTPException(404, "No quiz for that unit")
