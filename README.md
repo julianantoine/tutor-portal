@@ -165,6 +165,26 @@ On this CPU-only box an 8B model needs minutes per generation, which is why the
 UI defaults to `rules` and the AI engines are opt-in. Tune with
 `NOTES_AI_TIMEOUT` (seconds) and `TUTOR_MODEL`.
 
+## Importing study material
+
+PDFs are read page by page so a deck's running footer can be recognised and
+dropped. Removed on import: page numbers, `©`/copyright/'all rights reserved'
+lines, `Slide N` / `Figure N` markers, bare URLs, course-code lines
+(`PHY 202 — Lecture 4`, `Prof. …`, `Fall 2026`), and any short line that repeats
+on 40% or more of the pages (compared with digits collapsed, so 'Slide 12' and
+'Slide 13' count as the same line). Long sentences are never dropped by the
+repetition rule, so a repeated teaching line survives. A 6-slide physics deck
+imports as 213 words of content instead of 333 words of content plus furniture.
+
+Two related guards worth knowing about:
+
+* Sentences hard-wrapped by the PDF layout are rejoined — unless the line is a
+  short title followed by a proper sentence, which is left alone so the title
+  can be paired with the paragraph under it.
+* `X = Y` inside a prose sentence is not treated as a definition, so '…potential
+  difference, C = Q/V, measured in farads.' does not produce the flashcard
+  `difference, C → Q/V`.
+
 ## Deployment (Railway + custom domain)
 
 Live at **https://app.collegegradelifter.com** — Railway project `gradeboost`,
