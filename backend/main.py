@@ -1105,8 +1105,13 @@ def create_note(body: NoteIn, user=Depends(current_user)):
         nid = cur.lastrowid
     _mark_inflight(nid, True)
     NOTES_EXEC.submit(_run_generation, nid, engine)
+    diagrams = _save_media(nid, pages, pdf_images)
+    warning = None
+    if body.pdf_b64 and not diagrams and not notes_engine.image_support():
+        warning = ("Diagrams in this PDF could not be read because Pillow is not installed "
+                   "on the server — the text imported fine, but figures will not appear.")
     return {"ok": True, "id": nid, "words": words, "status": "running",
-            "diagrams": _save_media(nid, pages, pdf_images)}
+            "diagrams": diagrams, "warning": warning}
 
 
 @app.get("/api/notes/{nid}")
@@ -1295,7 +1300,10 @@ def admin_student(uid: int, tutor=Depends(require_tutor)):
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "time": now_iso(), "model": TUTOR_MODEL, "ollama": OLLAMA_URL}
+    return {"status": "ok", "time": now_iso(), "model": TUTOR_MODEL, "ollama": OLLAMA_URL,
+            # false means this deployment cannot pull diagrams out of an uploaded
+            # PDF (Pillow missing) — a silent failure worth being able to see
+            "diagrams": notes_engine.image_support()}
 
 
 # ---------------------------------------------------------------------------

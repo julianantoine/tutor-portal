@@ -213,6 +213,20 @@ def text_from_pdf_b64(b64: str) -> str:
     return clean_text("\n\n".join(clean_pages(pages)))
 
 
+def image_support() -> bool:
+    """Can this deployment pull diagrams out of a PDF?
+
+    pypdf builds its image objects with Pillow, so without Pillow every page
+    silently yields no images. Reported by /api/health so the failure is visible
+    instead of looking like a deck with no diagrams in it.
+    """
+    try:
+        import PIL  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
 def _shrink_image(data: bytes, min_side: int, max_side: int):
     """-> (extension, bytes) or (None, None) if it is too small to be a diagram.
 
