@@ -19,33 +19,34 @@ cd "$(dirname "$0")"
 MSG="${1:-update $(date '+%Y-%m-%d %H:%M')}"
 LIVE="https://app.collegegradelifter.com"
 
+# A unique id for THIS deploy, written into the image (the Dockerfile copies
+# backend/) and then waited for on the live site. It must NOT be derived from the
+# commit hash and then re-read after committing: writing the file changes the
+# tree, so the commit the image is built from is not the hash written into it.
+# That mistake made this script report failure on a deploy that had succeeded.
+DEPLOY_ID="$(date -u +%Y%m%d-%H%M%S)-$(git rev-parse --short HEAD)"
+echo "$DEPLOY_ID" > backend/VERSION
+
 git add -A
 git diff --cached --quiet || git commit -q -m "$MSG"
 
-# the version marker travels inside the image (the Dockerfile copies backend/),
-# so the running container can say which commit it is
-echo "$(git rev-parse --short HEAD)" > backend/VERSION
-git add backend/VERSION
-git diff --cached --quiet || git commit -q -m "Record build $(git rev-parse --short HEAD)"
-
-SHA=$(git rev-parse --short HEAD)
 git push -q origin main
-echo "pushed $SHA to $(git remote get-url origin | sed 's#.*github.com/##; s#\.git$##')"
+echo "pushed $(git rev-parse --short HEAD) to $(git remote get-url origin | sed 's#.*github.com/##; s#\.git$##')"
 
 railway up --detach >/dev/null 2>&1
-echo "build started — waiting for $LIVE to report $SHA"
+echo "build started — waiting for $LIVE to report $DEPLOY_ID"
 
 for _ in $(seq 1 40); do
   RESP=$(curl -s --max-time 15 "$LIVE/api/health" || true)
   case "$RESP" in
-    *"\"version\":\"$SHA\""*)
-      echo "LIVE: $LIVE now running $SHA"
+    *"\"version\":\"$DEPLOY_ID\""*)
+      echo "LIVE: $LIVE now running $DEPLOY_ID  (commit $(git rev-parse --short HEAD))"
       echo "$RESP"
       exit 0 ;;
   esac
   sleep 15
 done
 
-echo "LIVE SITE IS NOT ON $SHA YET — still building, or the build failed. Check:" >&2
+echo "LIVE SITE IS NOT ON $DEPLOY_ID YET — still building, or the build failed. Check:" >&2
 echo "  railway logs" >&2
 exit 1
