@@ -267,6 +267,22 @@ class AssignmentIn(BaseModel):
     due: Optional[str] = None
 
 
+VERSION_FILE = Path(__file__).resolve().parent / "VERSION"
+
+
+def build_version() -> str:
+    """The commit this image was built from, written by deploy.sh.
+
+    /api/health reports it so a deploy can be checked rather than assumed: a
+    container that answers 200 may still be the PREVIOUS build while the new one
+    is rolling out.
+    """
+    try:
+        return VERSION_FILE.read_text().strip() or "unknown"
+    except Exception:
+        return "unknown"
+
+
 def current_user(authorization: Optional[str] = Header(None)):
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -1301,6 +1317,7 @@ def admin_student(uid: int, tutor=Depends(require_tutor)):
 @app.get("/api/health")
 def health():
     return {"status": "ok", "time": now_iso(), "model": TUTOR_MODEL, "ollama": OLLAMA_URL,
+            "version": build_version(),
             # false means this deployment cannot pull diagrams out of an uploaded
             # PDF (Pillow missing) — a silent failure worth being able to see
             "diagrams": notes_engine.image_support()}

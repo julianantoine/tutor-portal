@@ -3,9 +3,13 @@
 # Ship the Tutor Portal: commit, push to GitHub, update the live site.
 #
 # Railway is NOT wired to GitHub on this account (the Railway GitHub App is not
-# authorised), so a push on its own does NOT deploy. This script is the one
-# command that makes a change live, and it does not claim success until the
-# running site actually answers.
+# authorised), so a push on its own does NOT deploy. This is the one command that
+# makes a change live.
+#
+# It does not trust a 200 from /api/health. During a rollout the PREVIOUS
+# container is still answering, so a health check passes while the new build is
+# still building — this waits until the live site reports the exact commit that
+# was just pushed.
 #
 #   ./deploy.sh "what changed"
 #
@@ -16,29 +20,32 @@ MSG="${1:-update $(date '+%Y-%m-%d %H:%M')}"
 LIVE="https://app.collegegradelifter.com"
 
 git add -A
-if git diff --cached --quiet; then
-  echo "nothing to commit"
-else
-  git commit -q -m "$MSG"
-  echo "committed $(git rev-parse --short HEAD)"
-fi
+git diff --cached --quiet || git commit -q -m "$MSG"
 
+# the version marker travels inside the image (the Dockerfile copies backend/),
+# so the running container can say which commit it is
+echo "$(git rev-parse --short HEAD)" > backend/VERSION
+git add backend/VERSION
+git diff --cached --quiet || git commit -q -m "Record build $(git rev-parse --short HEAD)"
+
+SHA=$(git rev-parse --short HEAD)
 git push -q origin main
-echo "pushed to $(git remote get-url origin | sed 's#.*github.com/##; s#\.git$##')"
+echo "pushed $SHA to $(git remote get-url origin | sed 's#.*github.com/##; s#\.git$##')"
 
 railway up --detach >/dev/null 2>&1
-echo "deploy started — waiting for $LIVE to answer"
+echo "build started — waiting for $LIVE to report $SHA"
 
-# the edge answers 502 while the old container is torn down and the new one
-# starts, so retry rather than reporting the first failure
-for _ in $(seq 1 30); do
-  code=$(curl -s -o /dev/null -w "%{http_code}" "$LIVE/api/health" || true)
-  if [ "$code" = "200" ]; then
-    echo "LIVE: $LIVE  (health 200, $(git rev-parse --short HEAD))"
-    exit 0
-  fi
-  sleep 10
+for _ in $(seq 1 40); do
+  RESP=$(curl -s --max-time 15 "$LIVE/api/health" || true)
+  case "$RESP" in
+    *"\"version\":\"$SHA\""*)
+      echo "LIVE: $LIVE now running $SHA"
+      echo "$RESP"
+      exit 0 ;;
+  esac
+  sleep 15
 done
 
-echo "DEPLOY DID NOT COME UP — run 'railway logs' and check" >&2
+echo "LIVE SITE IS NOT ON $SHA YET — still building, or the build failed. Check:" >&2
+echo "  railway logs" >&2
 exit 1
