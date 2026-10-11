@@ -185,6 +185,30 @@ Two related guards worth knowing about:
   difference, C = Q/V, measured in farads.' does not produce the flashcard
   `difference, C → Q/V`.
 
+## Studying a deck
+
+Each flashcard is studied as a question, built at generation time:
+
+1. an automatic prompt — `Which of these best describes <term>?` for a
+   definition card, or the sentence with the blank in it for a cloze card;
+2. four radio options, one correct;
+3. an **Answer** button that marks the pick green/red, locks the options and
+   shows *why* — the definition the notes give for that term, plus which of the
+   other options describe which other concepts, so a wrong guess is
+   explainable rather than just wrong;
+4. **Next** to move on, with a running `correct / answered` score.
+
+Two guards keep the questions fair, both in `attach_quiz()`:
+
+* a distractor that restates the answer in other words is dropped — a deck
+  holding both `Kirchhoff's Laws` and `Kirchhoff's Voltage Law` otherwise
+  produced a question whose distractor *was* the answer;
+* a fill-in-the-blank card only ever offers term-length alternatives, never
+  whole sentences.
+
+Kits generated before this existed have no options and fall back to the plain
+flip card, so old notes keep working.
+
 ## Deployment (Railway + custom domain)
 
 Live at **https://app.collegegradelifter.com** — Railway project `gradeboost`,
