@@ -28,7 +28,9 @@ fi
 
 if curl -sf --max-time 2 "http://127.0.0.1:${PORT}/api/health" >/dev/null 2>&1; then
   echo "Ready:  http://127.0.0.1:${PORT}/"
-  LAN="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  # Prefer a routable LAN address: the first interface is often link-local
+  # (169.254.x, APIPA) which nothing on the network can actually reach.
+  LAN="$(hostname -I 2>/dev/null | tr ' ' '\n' | grep -vE '^169\.254\.' | grep -E '^[0-9]+\.[0-9]+\.' | head -1)"
   [ -n "${LAN:-}" ] && echo "LAN:    http://${LAN}:${PORT}/"
   (command -v xdg-open >/dev/null && xdg-open "http://127.0.0.1:${PORT}/" >/dev/null 2>&1 &) || true
 else
