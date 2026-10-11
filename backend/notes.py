@@ -30,28 +30,177 @@ from typing import List, Dict, Optional, Tuple
 # text extraction
 # --------------------------------------------------------------------------- #
 
-def text_from_pdf_b64(b64: str) -> str:
-    """Extract the text layer from an uploaded PDF (pypdf), or '' if we can't."""
+def pdf_pages_b64(b64: str) -> List[str]:
+    """Text of each PDF page, kept separate per page.
+
+    Per-page is the point: slide decks repeat a running footer on every page
+    (copyright line, slide number, course code), and that boilerplate is only
+    detectable by comparing pages with each other.
+    """
     try:
         from pypdf import PdfReader
         raw = base64.b64decode(b64.split(",")[-1])
         reader = PdfReader(io.BytesIO(raw))
-        out = []
-        for page in reader.pages[:60]:
+        pages = []
+        for page in reader.pages[:80]:
             try:
-                out.append(page.extract_text() or "")
+                pages.append(page.extract_text() or "")
             except Exception:
-                continue
-        return "\n".join(out).strip()
+                pages.append("")
+        return pages
     except Exception:
-        return ""
+        return []
+
+
+# --- footnote / running-header filters ------------------------------------- #
+PAGE_NO_RE = re.compile(r"^\s*(?:page\s*)?\d{1,4}(?:\s*(?:of|/)\s*\d{1,4})?\s*$", re.I)
+SLIDE_RE = re.compile(r"^\s*(?:slide|fig(?:ure)?|table|chart|exhibit|appendix)\s*\.?\s*\d+\b.*$", re.I)
+COPY_RE = re.compile(
+    r"(©|\(c\)\s*\d{4}|\bcopyright\b|all rights reserved|do not (?:copy|distribute|reproduce|share)"
+    r"|confidential|proprietary|used with permission|reprinted)", re.I)
+URL_ONLY_RE = re.compile(r"^\s*(?:https?://|www\.)\S+\s*$", re.I)
+# "Physics 202 – Lecture 4", "MTH-202", "Prof. Smith", "Fall 2026"
+RUNNING_RE = re.compile(
+    r"^\s*(?:[A-Z]{2,4}[-\s]?\d{3}[a-z]?|lecture\s*\d+|chapter\s*\d+|prof(?:essor)?\.?\s+\S+"
+    r"|(?:spring|summer|fall|winter)\s*\d{4}|\d{1,2}/\d{1,2}/\d{2,4})\s*$", re.I)
+
+
+def _norm_boiler(s: str) -> str:
+    """Normalise for cross-page comparison: digits and punctuation collapse, so
+    'Slide 12' and 'Slide 13' compare equal."""
+    s = re.sub(r"\d+", "#", (s or "").lower())
+    s = re.sub(r"[^a-z#\s]", " ", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _too_small_to_matter(t: str) -> bool:
+    """Very short lines that carry no learnable content. Deliberately narrow —
+    formula fragments like 'C = Q/V' must survive."""
+    return len(re.findall(r"[A-Za-z]", t)) < 3 and len(t) < 24
+
+
+def is_footnote_line(line: str) -> bool:
+    """A single line that is footnote/slide furniture rather than content."""
+    t = (line or "").strip()
+    if not t:
+        return True
+    if PAGE_NO_RE.match(t) or SLIDE_RE.match(t):
+        return True
+    if COPY_RE.search(t) and len(t) < 200:
+        return True
+    if URL_ONLY_RE.match(t):
+        return True
+    if RUNNING_RE.match(t):
+        return True
+    if _too_small_to_matter(t):
+        return True
+    return False
+
+
+def strip_slide_boilerplate(pages: List[str], frac: float = 0.4, min_pages: int = 3) -> List[str]:
+    """Drop running headers/footers from a deck, page by page.
+
+    Two passes:
+      1. line-level footnote filters (page numbers, ©, 'Slide N', course codes);
+      2. anything short that repeats across a large fraction of pages, compared
+         after digit-collapsing so 'Slide 12' matches 'Slide 13'.
+    Long sentences are never removed by the repetition rule, so a genuinely
+    repeated teaching line survives.
+    """
+    n = len(pages)
+    boiler = set()
+    if n >= min_pages:
+        counts: Dict[str, int] = {}
+        for p in pages:
+            lines = [l.strip() for l in (p or "").split("\n") if l.strip()]
+            if not lines:
+                continue
+            edge = lines[:2] + lines[-3:]
+            for key in {_norm_boiler(x) for x in edge}:
+                if key:
+                    counts[key] = counts.get(key, 0) + 1
+        thresh = max(min_pages, int(n * frac))
+        boiler = {k for k, c in counts.items() if c >= thresh and len(k) <= 90}
+        # a repeated SHORT line anywhere on the page is furniture too
+        everywhere: Dict[str, int] = {}
+        for p in pages:
+            for key in {_norm_boiler(l) for l in (p or "").split("\n") if l.strip()}:
+                if key:
+                    everywhere[key] = everywhere.get(key, 0) + 1
+        boiler |= {k for k, c in everywhere.items()
+                   if c >= thresh and len(k) <= 60 and not k.endswith((".", "?", "!"))}
+
+    out = []
+    for p in pages:
+        keep = []
+        for raw in (p or "").split("\n"):
+            t = raw.strip()
+            if not t or is_footnote_line(t):
+                continue
+            if _norm_boiler(t) in boiler:
+                continue
+            keep.append(t)
+        out.append("\n".join(keep))
+    return out
+
+
+def drop_footnote_lines(text: str) -> str:
+    """Line-level filter for text that has no page structure (pasted notes)."""
+    keep = [l for l in (text or "").split("\n") if not is_footnote_line(l)]
+    return "\n".join(keep)
+
+
+def merge_wrapped_lines(text: str) -> str:
+    """Rejoin sentences that a PDF hard-wrapped across lines.
+
+    Careful not to glue a slide title onto its body: a SHORT line with no
+    terminal punctuation followed by a proper sentence is treated as a heading
+    and left on its own line, everything else is joined.
+    """
+    lines = [l.strip() for l in (text or "").split("\n")]
+    out: List[str] = []
+    buf = ""
+    for raw in lines:
+        t = raw.strip()
+        if not t:
+            if buf:
+                out.append(buf); buf = ""
+            if out and out[-1] != "":
+                out.append("")
+            continue
+        if not buf:
+            buf = t
+            continue
+        prev_incomplete = not buf.endswith((".", "!", "?", ":", ";"))
+        nxt_is_sentence = bool(re.match(r"[A-Z\"'(]", t)) and len(t) >= 40
+        heading_like = len(buf) <= 65 and prev_incomplete and len(buf.split()) <= 10
+        starts_item = bool(BULLET.match(t) or HEADING.match(t))
+        if prev_incomplete and not starts_item and not (heading_like and nxt_is_sentence):
+            buf = buf + " " + t
+        else:
+            out.append(buf)
+            buf = t
+    if buf:
+        out.append(buf)
+    return "\n".join(out)
 
 
 def clean_text(text: str) -> str:
     text = (text or "").replace("\r\n", "\n").replace("\r", "\n")
     text = re.sub(r"[ \t]+", " ", text)
+    text = drop_footnote_lines(text)
+    text = merge_wrapped_lines(text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
+
+
+def text_from_pdf_b64(b64: str) -> str:
+    """Extract a PDF's text layer, minus slide footers/running headers."""
+    pages = pdf_pages_b64(b64)
+    if not pages:
+        return ""
+    pages = strip_slide_boilerplate(pages)
+    return clean_text("\n\n".join(pages))
 
 
 # --------------------------------------------------------------------------- #
@@ -110,6 +259,28 @@ def _split_definitions(text: str) -> List[Tuple[str, str]]:
         if len(defn) >= 20 and not _looks_like_junk(defn):
             pairs.append((term, defn[:400]))
 
+    # 1b. slide-style titles: a short, unpunctuated line followed by a sentence.
+    #     Deck exports have no markdown, so "Capacitance" on its own line is the
+    #     only signal that the next paragraph defines it.
+    for i, raw in enumerate(lines):
+        t = raw.strip()
+        if not (2 <= len(t) <= 70) or len(t.split()) > 6:
+            continue
+        if t.endswith((".", "!", "?", ":", ";", ",")) or t.startswith(("(", "[")):
+            continue
+        if "," in t or ";" in t:
+            continue
+        if HEADING.match(raw) or BULLET.match(raw):
+            continue
+        nxt = ""
+        for j in range(i + 1, min(i + 3, len(lines))):
+            if lines[j].strip():
+                nxt = lines[j].strip()
+                break
+        if len(nxt) < 40 or BULLET.match(nxt) or _looks_like_junk(nxt):
+            continue
+        pairs.append((t, nxt[:400]))
+
     # 2. inline "term <sep> definition"
     for raw in lines:
         line = BULLET.sub("", raw.strip()).strip()
@@ -121,6 +292,11 @@ def _split_definitions(text: str) -> List[Tuple[str, str]]:
                 continue
             term, defn = line[:idx].strip(), line[idx + len(sep):].strip()
             if not (2 <= len(term) <= 70) or len(defn) < 15:
+                continue
+            # an equation or clause inside prose is not a definition: "…
+            # potential difference, C = Q/V, measured in farads." must not become
+            # the term "difference, C"
+            if sep in (" = ", "=>", "→") and ("," in term or ";" in term or len(term.split()) > 5):
                 continue
             # a sentence that merely contains a dash is not a definition
             if term.endswith((",",)) or len(term.split()) > 9:
@@ -140,7 +316,23 @@ def _split_definitions(text: str) -> List[Tuple[str, str]]:
 
 
 def _sentences(text: str) -> List[str]:
-    flat = re.sub(r"\n+", " ", text)
+    # A heading has no terminal punctuation, so flattening newlines blindly glues
+    # it to the sentence below — which produced garbled cloze cards such as
+    # "_____ constant The dielectric constant is the factor …". Mark the boundary
+    # at every heading line (markdown "## Title" or a bare slide title) first.
+    lines = (text or "").split("\n")
+    guarded: List[str] = []
+    for i, raw in enumerate(lines):
+        t = raw.strip()
+        nxt = lines[i + 1].strip() if i + 1 < len(lines) else ""
+        bare_title = (2 <= len(t) <= 70 and len(t.split()) <= 8
+                      and not t.endswith((".", "!", "?", ":", ";"))
+                      and len(nxt) >= 40 and not BULLET.match(nxt))
+        if t and (HEADING.match(raw) or bare_title):
+            guarded.append(t + " .")
+        else:
+            guarded.append(raw)
+    flat = re.sub(r"\n+", " ", "\n".join(guarded))
     parts = re.split(r"(?<=[.!?])\s+", flat)
     out = []
     for s in parts:
