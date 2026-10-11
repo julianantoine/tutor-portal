@@ -455,6 +455,94 @@ def rules_exam(text: str, cards: List[Dict], limit: int = 10) -> List[Dict]:
     return questions
 
 
+def _too_similar(a: str, b: str) -> bool:
+    """True when two options are effectively the same content.
+
+    Without this a deck that has both 'Kirchhoff's Laws' and 'Kirchhoff's Voltage
+    Law' gives a question whose distractor IS the answer in different words, which
+    is unanswerable rather than difficult.
+    """
+    a, b = (a or "").lower().strip(), (b or "").lower().strip()
+    if not a or not b:
+        return False
+    if a in b or b in a:
+        return True
+    ta = set(re.findall(r"[a-z]{3,}", a))
+    tb = set(re.findall(r"[a-z]{3,}", b))
+    if not ta or not tb:
+        return False
+    return len(ta & tb) / max(1, len(ta | tb)) >= 0.55
+
+
+def attach_quiz(cards: List[Dict], text: str = "") -> List[Dict]:
+    """Give every card an auto-written prompt, radio options, the correct index
+    and an explanation grounded in the student's own notes.
+
+    The study view walks the deck one card at a time: prompt -> pick an option ->
+    press Answer -> the correct option is highlighted with the reason why. Every
+    string here is derived from the uploaded material, never from outside
+    knowledge, so an explanation can always be traced back to the notes.
+    """
+    rnd = random.Random(11)
+    defs = [(c["front"], c["back"]) for c in cards
+            if c.get("source") != "cloze" and len(c.get("back", "")) >= 15]
+    all_backs = [c["back"] for c in cards if c.get("back")]
+
+    # term-like pool for fill-in-the-blank options: the answer there is a word,
+    # so offering whole sentences as alternatives would be nonsense
+    token_pool: List[str] = []
+    for candidate in all_backs + [t for t, _d in defs]:
+        if 3 <= len(candidate) <= 40 and len(candidate.split()) <= 3 \
+                and candidate not in token_pool:
+            token_pool.append(candidate)
+
+    for c in cards:
+        correct = c.get("back", "")
+        if not correct:
+            continue
+        if c.get("source") == "cloze":
+            prompt = c["front"] if "_____" in c.get("front", "") else f"Fill in the blank: {c['front']}"
+            pool = [t for t in token_pool if t != correct]
+            restored = c["front"].replace("_____", correct)
+            why = (f"Reading the sentence in full: \u201c{restored}\u201d \u2014 so "
+                   f"\u201c{correct}\u201d is the term your notes use there.")
+        else:
+            term = c["front"]
+            prompt = f"Which of these best describes {term}?"
+            pool = [d for _t, d in defs if d != correct]
+            names = [t for t, d in defs if d != correct]
+            why = f"Your notes define {term} as: \u201c{correct}\u201d"
+            if len(names) >= 3:
+                picks = rnd.sample(names, 3)
+                why += (f" The other options describe {picks[0]}, {picks[1]} "
+                        f"and {picks[2]}.")
+            else:
+                why += "."
+
+        # keep only distractors that are clearly different from the answer and
+        # from one another, then pad the question out to four where possible
+        rnd.shuffle(pool)
+        chosen: List[str] = []
+        for o in pool:
+            if not o or o == correct or o == c.get("front"):
+                continue
+            if _too_similar(o, correct) or any(_too_similar(o, x) for x in chosen):
+                continue
+            chosen.append(o)
+            if len(chosen) == 3:
+                break
+
+        opts = [correct] + chosen
+        if len(opts) < 2:
+            continue                      # no fair question is possible; leave the card alone
+        rnd.shuffle(opts)
+        c["prompt"] = prompt[:400]
+        c["opts"] = [o[:260] for o in opts]
+        c["answer"] = opts.index(correct)
+        c["why"] = why[:600]
+    return cards
+
+
 def rules_kit(text: str) -> Dict:
     cards = rules_cards(text)
     return {
@@ -676,6 +764,7 @@ def build_kit(text: str, title: str = "Notes", engine: str = "auto",
     if engine in ("auto", "ai"):
         kit = ai_kit(text, title, ollama_url, model, timeout=timeout)
         if kit:
+            kit["cards"] = attach_quiz(kit["cards"], text)
             kit["summary"] = (f"{len(kit['cards'])} flashcards and {len(kit['exam'])} exam "
                               f"questions written by your local tutor model.")
             kit["fallback_reason"] = None
@@ -685,6 +774,7 @@ def build_kit(text: str, title: str = "Notes", engine: str = "auto",
                              f"try the 'Instant (offline rules)' engine.")
 
     kit = rules_kit(text)
+    kit["cards"] = attach_quiz(kit["cards"], text)
     kit["fallback_reason"] = None if engine == "rules" else \
         "Local model unavailable or too slow, so these were built offline by the rules engine."
     return kit

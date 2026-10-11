@@ -1237,6 +1237,62 @@ async function regenerateNote(nid, engine) {
 
 function renderDeck(host, cards, title) {
   if (!cards.length) { host.innerHTML = `<div class="empty">No flashcards in this set.</div>`; return; }
+  // Kits stored before the quiz fields existed have no options: keep the plain
+  // flip card rather than showing an unanswerable question.
+  if (!cards.some(c => Array.isArray(c.opts) && c.opts.length > 1)) return renderFlipDeck(host, cards, title);
+
+  let idx = 0, pick = null, revealed = false, answered = 0, correct = 0;
+
+  const draw = () => {
+    const c = cards[idx];
+    const opts = Array.isArray(c.opts) ? c.opts : [];
+    const hasQ = opts.length > 1 && typeof c.answer === 'number';
+    const pct = answered ? Math.round(100 * correct / answered) : 0;
+    host.innerHTML = `
+      <div class="deck-wrap">
+        <div class="deck-head">
+          <span class="fc-counter">Card ${idx + 1} / ${cards.length}${c.level ? ' · ' + lvlName(c.level) : ''}</span>
+          <span class="muted">${answered ? `${correct}/${answered} correct · ${pct}%` : 'Choose an option, then press Answer'}</span>
+        </div>
+        <div class="quiz-q">
+          <div class="qq-text">${esc(hasQ ? (c.prompt || c.front) : c.front)}</div>
+          ${hasQ ? opts.map((o, j) => {
+            const mark = revealed ? (j === c.answer ? ' opt-correct' : (j === pick ? ' opt-wrong' : '')) : '';
+            return `<label class="opt${mark}">
+              <input type="radio" name="fcOpt" value="${j}" ${pick === j ? 'checked' : ''} ${revealed ? 'disabled' : ''} />
+              <span>${esc(o)}</span></label>`;
+          }).join('') : `<div class="muted">No options for this card — press Answer to reveal it.</div>`}
+        </div>
+        <div class="deck-actions">
+          <button class="btn btn-ghost btn-sm" id="fcPrev" ${idx === 0 ? 'disabled' : ''}>← Prev</button>
+          <button class="btn btn-primary btn-sm" id="fcAnswer" ${revealed ? 'disabled' : ''}>Answer</button>
+          <button class="btn btn-accent btn-sm" id="fcNext" ${idx === cards.length - 1 ? 'disabled' : ''}>Next →</button>
+        </div>
+        ${revealed ? `
+        <div class="why-box">
+          <div class="why-head">${pick === null ? 'Answer' : (pick === c.answer ? '✓ Correct' : '✗ Not quite')}</div>
+          ${hasQ ? `<div class="why-line"><strong>Correct answer:</strong> ${esc(opts[c.answer])}</div>` : ''}
+          ${c.why ? `<div class="why-line"><strong>Why:</strong> ${esc(c.why)}</div>`
+                  : `<div class="why-line">${esc(c.back)}</div>`}
+        </div>` : ''}
+      </div>`;
+
+    $$('input[name=fcOpt]', host).forEach(r =>
+      r.addEventListener('change', () => { pick = Number(r.value); }));
+
+    const prev = $('#fcPrev', host), next = $('#fcNext', host), ans = $('#fcAnswer', host);
+    if (prev) prev.addEventListener('click', () => { if (idx > 0) { idx--; pick = null; revealed = false; draw(); } });
+    if (next) next.addEventListener('click', () => { if (idx < cards.length - 1) { idx++; pick = null; revealed = false; draw(); } });
+    if (ans) ans.addEventListener('click', () => {
+      revealed = true;
+      if (pick !== null) { answered++; if (pick === c.answer) correct++; }
+      draw();
+    });
+  };
+  draw();
+}
+
+function renderFlipDeck(host, cards, title) {
   const st = { deck: cards, idx: 0, flipped: false };
   const draw = () => {
     const c = st.deck[st.idx];
