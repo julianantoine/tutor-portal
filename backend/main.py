@@ -19,7 +19,9 @@ import sqlite3
 import hashlib
 import secrets
 import time
+import threading
 from contextlib import contextmanager, asynccontextmanager
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional, List
@@ -36,6 +38,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import content
+import notes as notes_engine
 
 # ---------------------------------------------------------------------------
 # Config
@@ -151,6 +154,28 @@ CREATE TABLE IF NOT EXISTS term_courses (
     units INTEGER NOT NULL DEFAULT 1,
     level INTEGER NOT NULL DEFAULT 1,
     topics TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    course_code TEXT,
+    unit_id TEXT,
+    body TEXT NOT NULL,
+    words INTEGER NOT NULL DEFAULT 0,
+    engine TEXT NOT NULL DEFAULT 'auto',
+    gen_status TEXT NOT NULL DEFAULT 'none',
+    gen_engine TEXT,
+    gen_error TEXT,
+    gen_ms INTEGER,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS study_kits (
+    note_id INTEGER PRIMARY KEY,
+    cards TEXT NOT NULL DEFAULT '[]',
+    exam TEXT NOT NULL DEFAULT '[]',
+    engine TEXT,
     created_at TEXT NOT NULL
 );
 """
@@ -881,6 +906,238 @@ def toggle_assignment(aid: int, user=Depends(current_user)):
         if r["user_id"] != user["id"] and user["role"] != "tutor":
             raise HTTPException(403, "Not your assignment")
         con.execute("UPDATE assignments SET done=? WHERE id=?", (0 if r["done"] else 1, aid))
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Notes -> Study Kit
+#
+# The student drops in their own notes (paste, .txt/.md, or a PDF); the portal
+# returns a flashcard deck plus a graded practice exam on that material. Model
+# generation takes a minute or two on this box, so it runs on a worker thread
+# and the client polls the note until its status flips to ready.
+# ---------------------------------------------------------------------------
+
+NOTES_AI_TIMEOUT = float(os.environ.get("NOTES_AI_TIMEOUT", "300"))
+NOTES_EXEC = ThreadPoolExecutor(max_workers=2, thread_name_prefix="notes")
+# Notes whose generation is running in THIS process. A note left 'running' but
+# absent from here was orphaned by a restart/crash and must not spin forever.
+NOTES_INFLIGHT: set = set()
+NOTES_LOCK = threading.Lock()
+
+
+def _mark_inflight(nid: int, on: bool):
+    with NOTES_LOCK:
+        if on:
+            NOTES_INFLIGHT.add(nid)
+        else:
+            NOTES_INFLIGHT.discard(nid)
+
+
+class NoteIn(BaseModel):
+    title: Optional[str] = None
+    course_code: Optional[str] = None
+    unit_id: Optional[str] = None
+    text: Optional[str] = None
+    pdf_b64: Optional[str] = None
+    filename: Optional[str] = None
+    engine: Optional[str] = "auto"          # auto | ai | rules
+
+
+class GenIn(BaseModel):
+    engine: Optional[str] = "auto"
+
+
+class ExamIn(BaseModel):
+    answers: List[int]
+
+
+def _note_row(con, nid: int, user_id: int):
+    return con.execute(
+        "SELECT * FROM notes WHERE id=? AND user_id=?", (nid, user_id)
+    ).fetchone()
+
+
+def _run_generation(nid: int, engine: str):
+    """Worker: build the study kit and record the outcome on the note row."""
+    _mark_inflight(nid, True)
+    try:
+        with db() as con:
+            row = con.execute("SELECT title, body FROM notes WHERE id=?", (nid,)).fetchone()
+        if not row:
+            return
+        started = time.time()
+        try:
+            kit = notes_engine.build_kit(
+                row["body"], row["title"], engine=engine,
+                ollama_url=OLLAMA_URL, model=TUTOR_MODEL,
+                timeout=NOTES_AI_TIMEOUT,
+            )
+            with db() as con:
+                con.execute(
+                    "INSERT INTO study_kits(note_id, cards, exam, engine, created_at) "
+                    "VALUES(?,?,?,?,?) ON CONFLICT(note_id) DO UPDATE SET "
+                    "cards=excluded.cards, exam=excluded.exam, engine=excluded.engine, "
+                    "created_at=excluded.created_at",
+                    (nid, json.dumps(kit["cards"]), json.dumps(kit["exam"]),
+                     kit["engine"], now_iso()),
+                )
+                con.execute(
+                    "UPDATE notes SET gen_status='ready', gen_engine=?, gen_error=?, gen_ms=? WHERE id=?",
+                    (kit["engine"], kit.get("fallback_reason"), int((time.time() - started) * 1000), nid),
+                )
+        except Exception as e:
+            with db() as con:
+                con.execute(
+                    "UPDATE notes SET gen_status='error', gen_error=? WHERE id=?",
+                    (str(e)[:300], nid),
+                )
+    finally:
+        _mark_inflight(nid, False)
+
+
+@app.get("/api/notes")
+def list_notes(user=Depends(current_user)):
+    with db() as con:
+        rows = con.execute(
+            "SELECT id,title,course_code,unit_id,words,engine,gen_status,gen_engine,"
+            "gen_error,gen_ms,created_at FROM notes WHERE user_id=? ORDER BY id DESC",
+            (user["id"],),
+        ).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            if d["gen_status"] == "running":
+                with NOTES_LOCK:
+                    live = d["id"] in NOTES_INFLIGHT
+                if not live:
+                    msg = ("Generation was interrupted (the server restarted mid-build). "
+                           "Rebuild to try again.")
+                    con.execute("UPDATE notes SET gen_status='error', gen_error=? WHERE id=?", (msg, d["id"]))
+                    d["gen_status"], d["gen_error"] = "error", msg
+            k = con.execute("SELECT cards, exam FROM study_kits WHERE note_id=?", (r["id"],)).fetchone()
+            d["cards"] = len(json.loads(k["cards"] or "[]")) if k else 0
+            d["questions"] = len(json.loads(k["exam"] or "[]")) if k else 0
+            out.append(d)
+    return {"notes": out}
+
+
+@app.post("/api/notes")
+def create_note(body: NoteIn, user=Depends(current_user)):
+    text = body.text or ""
+    if body.pdf_b64:
+        extracted = notes_engine.text_from_pdf_b64(body.pdf_b64)
+        if not extracted.strip():
+            raise HTTPException(400, "No text layer in that PDF — if it's a scan, paste the "
+                                     "notes as text instead.")
+        text = (text + "\n\n" + extracted).strip() if text.strip() else extracted
+    text = notes_engine.clean_text(text)
+    words = len(text.split())
+    if words < 25:
+        raise HTTPException(400, "That's a bit thin — paste at least a few lines of notes.")
+
+    engine = (body.engine or "auto").lower()
+    if engine not in ("auto", "ai", "rules"):
+        engine = "auto"
+    title = (body.title or "").strip() or (body.filename or "").strip() or "Untitled notes"
+
+    with db() as con:
+        cur = con.execute(
+            "INSERT INTO notes(user_id, title, course_code, unit_id, body, words, engine, "
+            "gen_status, created_at) VALUES(?,?,?,?,?,?,?,'running',?)",
+            (user["id"], title[:120], body.course_code, body.unit_id, text, words, engine, now_iso()),
+        )
+        nid = cur.lastrowid
+    _mark_inflight(nid, True)
+    NOTES_EXEC.submit(_run_generation, nid, engine)
+    return {"ok": True, "id": nid, "words": words, "status": "running"}
+
+
+@app.get("/api/notes/{nid}")
+def get_note(nid: int, user=Depends(current_user)):
+    with db() as con:
+        row = _note_row(con, nid, user["id"])
+        if not row:
+            raise HTTPException(404, "Notes not found")
+        d = dict(row)
+        d.pop("body", None)
+        k = con.execute("SELECT cards, exam, engine FROM study_kits WHERE note_id=?", (nid,)).fetchone()
+        # a note still 'running' but not in this process was orphaned by a restart
+        if d["gen_status"] == "running":
+            with NOTES_LOCK:
+                live = d["id"] in NOTES_INFLIGHT
+            if not live:
+                msg = ("Generation was interrupted (the server restarted mid-build). "
+                       "Rebuild to try again.")
+                con.execute("UPDATE notes SET gen_status='error', gen_error=? WHERE id=?", (msg, d["id"]))
+                d["gen_status"], d["gen_error"] = "error", msg
+    kit = None
+    if k:
+        kit = {"cards": json.loads(k["cards"] or "[]"), "exam": json.loads(k["exam"] or "[]"),
+               "engine": k["engine"]}
+    return {"note": d, "kit": kit}
+
+
+@app.post("/api/notes/{nid}/generate")
+def regenerate_note(nid: int, body: GenIn, user=Depends(current_user)):
+    with db() as con:
+        row = _note_row(con, nid, user["id"])
+        if not row:
+            raise HTTPException(404, "Notes not found")
+    engine = (body.engine or row["engine"] or "auto").lower()
+    if engine not in ("auto", "ai", "rules"):
+        engine = "auto"
+    with db() as con:
+        con.execute("UPDATE notes SET gen_status='running', gen_engine=NULL, gen_error=NULL, "
+                    "engine=? WHERE id=?", (engine, nid))
+    _mark_inflight(nid, True)
+    NOTES_EXEC.submit(_run_generation, nid, engine)
+    return {"ok": True, "status": "running", "engine": engine}
+
+
+@app.post("/api/notes/{nid}/exam")
+def submit_note_exam(nid: int, body: ExamIn, user=Depends(current_user)):
+    """Grade the generated exam and log the attempt so the tutor sees it."""
+    with db() as con:
+        row = _note_row(con, nid, user["id"])
+        if not row:
+            raise HTTPException(404, "Notes not found")
+        k = con.execute("SELECT exam FROM study_kits WHERE note_id=?", (nid,)).fetchone()
+    if not k:
+        raise HTTPException(404, "Generate a study kit for these notes first")
+    exam = json.loads(k["exam"] or "[]")
+    if not exam:
+        raise HTTPException(404, "This note set has no exam questions yet")
+
+    results, score = [], 0
+    for i, q in enumerate(exam):
+        given = body.answers[i] if i < len(body.answers) else -1
+        ok = given == q.get("answer")
+        if ok:
+            score += 1
+        results.append({"correct": ok, "given": given, "answer": q.get("answer"),
+                        "explain": q.get("explain")})
+    total = len(exam)
+    pct = round(100 * score / total, 1)
+    with db() as con:
+        con.execute(
+            "INSERT INTO quiz_attempts(user_id, course_code, unit_id, score, total, detail, created_at) "
+            "VALUES(?,?,?,?,?,?,?)",
+            (user["id"], row["course_code"] or "NOTES", f"notes:{nid}", score, total,
+             json.dumps(results), now_iso()),
+        )
+    return {"score": score, "total": total, "pct": pct, "passed": pct >= 70,
+            "results": results, "note_id": nid}
+
+
+@app.delete("/api/notes/{nid}")
+def delete_note(nid: int, user=Depends(current_user)):
+    with db() as con:
+        row = _note_row(con, nid, user["id"])
+        if not row:
+            raise HTTPException(404, "Notes not found")
+        con.execute("DELETE FROM study_kits WHERE note_id=?", (nid,))
+        con.execute("DELETE FROM notes WHERE id=?", (nid,))
     return {"ok": True}
 
 

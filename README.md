@@ -21,6 +21,7 @@ formulas with notes, a fully worked example, common traps, and practice problems
 ## Features
 
 - **Student portal** — course/unit browser, Learn tabs (concepts → formulas → worked examples → traps → practice), flip flashcards, multiple-choice quizzes graded at 70%, mastery rings.
+- **Notes → Study Kit** — the student drops in their *own* notes (paste, `.txt`/`.md` upload, or a PDF) and the portal returns a flashcard deck plus a graded practice exam on exactly that material. Two engines: an offline extractive builder that answers in milliseconds, and the local AI tutor for richer, better-phrased cards. Every exam run is logged for the tutor dashboard.
 - **Progressive difficulty** — every unit, quiz question, worked example and practice problem is tagged **Foundational → Intermediate → Advanced**. Each unit carries two worked examples (one that builds the idea, one exam-level), quizzes are ordered easy → hard, and the AI tutor escalates with you.
 - **Semester / quarter planner** — register each term, list its courses, and add **any course you type**. You get a study plan that orders every subject easy → hard and interleaves subjects week by week.
 - **AI tutor** — streaming chat grounded in the selected course/unit material, powered by a **local Ollama model** (default `hermes3:latest` on `:11437`). Free and offline.
@@ -82,6 +83,7 @@ priority and `/` serves `index.html` + assets). Same-origin fetches, so no CORS 
 tutor-portal/
 ├── backend/
 │   ├── main.py        # FastAPI: auth, curriculum, quiz, tutor SSE, admin, assignments
+│   ├── notes.py       # Notes → Study Kit: PDF/text intake + the two generators
 │   └── content.py     # the curriculum: courses → units → concepts/formulas/examples/quizzes
 ├── static/
 │   ├── index.html     # SPA shell + auth screen
@@ -107,6 +109,8 @@ POST /api/terms/{id}/courses  GET  /api/terms/{id}/study-plan
 DELETE /api/term-courses/{id}
 GET  /api/assignments         POST /api/assignments      POST /api/assignments/{id}/toggle
 GET  /api/admin/students      GET  /api/admin/student/{uid}
+GET  /api/notes               POST /api/notes           GET    /api/notes/{id}
+POST /api/notes/{id}/generate POST /api/notes/{id}/exam DELETE /api/notes/{id}
 GET  /api/health
 ```
 
@@ -132,6 +136,34 @@ contributes its authored units; any other code is a **custom course** — its `t
 names and it gets a generated ramp from the `level` you pick. `/api/terms/{id}/study-plan` then
 returns, per course, the ordered units plus a **weekly interleaved sequence** across all courses
 (research on interleaving: a little of each subject each week beats blocking one at a time).
+
+## Notes → Study Kit
+
+`backend/notes.py` owns this. Upload path: paste text, or send a `.txt`/`.md`
+body (read in the browser) or a base64 PDF (text layer extracted server-side with
+`pypdf`). The note row is written immediately with `gen_status='running'` and the
+build is handed to a 2-worker thread pool, so the request returns at once and the
+client polls `GET /api/notes/{id}` until the status flips to `ready`.
+
+Two generators, picked by the `engine` field:
+
+- `rules` — fully offline and instant. Mines definition-shaped lines
+  (`term — definition`, `term: definition`), markdown headings followed by prose,
+  and bullet lists; then makes **cloze** cards by blanking the most memorable
+  token in a sentence. The exam is built from those same pairs: *"which of these
+  best describes X?"* with three distractors drawn from the other definitions in
+  your notes, falling back to cloze multiple-choice and finally to true/false so
+  an exam always exists.
+- `ai` — the local tutor model is asked for strict JSON grounded **only** in the
+  notes. Local models drift, repeat keys and truncate mid-array, so
+  `_extract_json` falls back to brace-matching each complete object out of the
+  array and keeping the good ones; anything that still fails validation drops to
+  the `rules` kit rather than erroring out. `auto` tries the model first and
+  quietly uses `rules` if the model is offline or too slow.
+
+On this CPU-only box an 8B model needs minutes per generation, which is why the
+UI defaults to `rules` and the AI engines are opt-in. Tune with
+`NOTES_AI_TIMEOUT` (seconds) and `TUTOR_MODEL`.
 
 ## Editing the curriculum
 

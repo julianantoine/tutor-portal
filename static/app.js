@@ -165,7 +165,7 @@ function markActiveNav() {
     const v = a.dataset.view, c = a.dataset.course;
     let active = false;
     if (c) active = state.view.name === 'course' && state.view.code === c;
-    else if (v) active = state.view.name === v;
+    else if (v) active = state.view.name === v || (v === 'notes' && state.view.name === 'note');
     a.classList.toggle('active', active);
   });
 }
@@ -207,11 +207,15 @@ const navViews = {
   tutor:      () => viewTutor(),
   terms:      () => viewTerms(),
   assignments:() => viewAssignments(),
+  notes:      () => viewNotes(),
+  note:       () => viewNote(),
   dashboard:  () => viewDashboard(),
 };
 
 async function navigate(name, opts = {}) {
-  state.view = { name, code: opts.code ?? state.view.code, unit: opts.unit ?? null, tab: opts.tab || 'learn' };
+  state.view = { name, code: opts.code ?? state.view.code, unit: opts.unit ?? null,
+                 tab: opts.tab || 'learn',
+                 note: opts.note ?? (name === 'note' ? state.view.note : null) };
   if (name !== 'unit') state.view.unit = null;
   markActiveNav();
   $('#sidebar').classList.remove('open');
@@ -1022,6 +1026,287 @@ async function openStudentProfile(uid) {
         <span>${esc(a.title)}</span>${a.due ? `<span class="spacer"></span><span class="muted" style="font-size:12.5px">due ${esc(a.due)}</span>` : ''}
       </div>`).join('') : `<div class="muted" style="font-size:13px">Nothing assigned.</div>`}
   `;
+}
+
+/* ================================================ NOTES → STUDY KIT == */
+async function readNotesFile(file) {
+  const nm = file.name.toLowerCase();
+  if (nm.endsWith('.pdf')) {
+    const b64 = await new Promise((res, rej) => {
+      const fr = new FileReader();
+      fr.onload = () => res(String(fr.result).split(',')[1] || '');
+      fr.onerror = rej;
+      fr.readAsDataURL(file);
+    });
+    return { pdf_b64: b64, filename: file.name };
+  }
+  const text = await new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(String(fr.result));
+    fr.onerror = rej;
+    fr.readAsText(file);
+  });
+  return { text, filename: file.name };
+}
+
+const engineLabel = e => e === 'ai' ? 'AI tutor' : e === 'rules' ? 'offline rules' : 'auto';
+
+async function viewNotes() {
+  const d = await api('/api/notes');
+  const notes = d.notes || [];
+  $('#content').innerHTML = `
+    <div class="page-head">
+      <div class="eyebrow">Your own material</div>
+      <h1>Notes → Study Kit</h1>
+      <p>Drop in your lecture notes — paste them, or upload a .txt, .md or PDF. The portal reads them and
+         builds a flashcard deck plus a graded practice exam on exactly that material. Nothing you upload
+         leaves this machine.</p>
+    </div>
+
+    <div class="card" style="margin-bottom:26px">
+      <h3 style="font-size:17px;margin-bottom:14px">Add notes</h3>
+      <form id="noteForm" class="grid grid-2">
+        <label class="field"><span>Title</span>
+          <input id="nTitle" placeholder="e.g. E&M lecture 4 — Gauss &amp; potential" /></label>
+        <label class="field"><span>Course (optional)</span>
+          <select id="nCourse" style="width:100%;padding:11px 14px;border:1px solid var(--border);border-radius:12px;font-family:var(--body)">
+            <option value="">— none —</option>
+            ${state.courses.map(c => `<option value="${esc(c.code)}">${esc(c.short)}</option>`).join('')}
+          </select></label>
+        <label class="field" style="grid-column:1/-1"><span>Notes</span>
+          <textarea id="nText" rows="8" placeholder="Paste your notes here — headings, bullet lists and
+'term — definition' lines all work well." style="width:100%;padding:12px 14px;border:1px solid var(--border);border-radius:12px;font-family:var(--body);resize:vertical"></textarea></label>
+        <label class="field"><span>…or upload a file (.txt, .md, .pdf)</span>
+          <input id="nFile" type="file" accept=".txt,.md,.markdown,.csv,.pdf" /></label>
+        <label class="field"><span>Engine</span>
+          <select id="nEngine" style="width:100%;padding:11px 14px;border:1px solid var(--border);border-radius:12px;font-family:var(--body)">
+            <option value="rules">Instant — offline rules, ready in a second</option>
+            <option value="auto">Auto — AI tutor when it's online, otherwise instant</option>
+            <option value="ai">AI tutor only — richer cards, 1–5 min on this machine</option>
+          </select></label>
+        <div style="grid-column:1/-1;display:flex;align-items:center;gap:12px">
+          <button class="btn btn-accent" type="submit" id="nSubmit">Build my study kit</button>
+          <span class="muted" id="nHint" style="font-size:12.5px"></span>
+        </div>
+      </form>
+    </div>
+
+    <h2 style="font-size:20px;margin-bottom:14px">My note sets</h2>
+    <div id="noteList"></div>
+  `;
+
+  const form = $('#noteForm');
+  $('#nSubmit').addEventListener('click', () => {});
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    const btn = $('#nSubmit'), hint = $('#nHint');
+    let payload = {
+      title: $('#nTitle').value.trim() || null,
+      course_code: $('#nCourse').value || null,
+      engine: $('#nEngine').value,
+      text: $('#nText').value,
+    };
+    const f = $('#nFile').files[0];
+    if (f) {
+      try {
+        const extra = await readNotesFile(f);
+        payload = { ...payload, ...extra, title: payload.title || f.name };
+      } catch { hint.textContent = 'Could not read that file.'; return; }
+    }
+    if (!(payload.text || '').trim() && !payload.pdf_b64) {
+      hint.textContent = 'Paste some notes or choose a file first.'; return;
+    }
+    btn.disabled = true; btn.textContent = 'Uploading…'; hint.textContent = '';
+    try {
+      const r = await api('/api/notes', { method: 'POST', body: JSON.stringify(payload) });
+      navigate('note', { note: r.id });
+    } catch (ex) {
+      hint.textContent = ex.message;
+      btn.disabled = false; btn.textContent = 'Build my study kit';
+    }
+  });
+
+  $('#noteList').innerHTML = notes.length ? notes.map(n => {
+    const running = n.gen_status === 'running';
+    const failed = n.gen_status === 'error';
+    const c = state.courses.find(x => x.code === n.course_code);
+    return `<div class="unit-row" data-nid="${n.id}">
+      <div class="u-main">
+        <div class="u-title">${esc(n.title)}</div>
+        <div class="u-sum">${c ? esc(c.short) + ' · ' : ''}${n.words} words ·
+          ${n.cards || 0} flashcards · ${n.questions || 0} exam questions ·
+          engine: ${esc(engineLabel(n.gen_engine || n.engine))}${n.gen_ms ? ' (' + (n.gen_ms / 1000).toFixed(1) + 's)' : ''}</div>
+      </div>
+      <div class="u-right">
+        ${running ? '<span class="tag warn">building…</span>'
+                  : failed ? `<span class="tag bad" title="${esc(n.gen_error || '')}">failed</span>`
+                           : '<span class="tag ok">ready</span>'}
+        <button class="btn btn-ghost btn-sm" data-open="${n.id}">Open</button>
+        <button class="btn btn-ghost btn-sm" data-del="${n.id}" title="Delete these notes">✕</button>
+      </div></div>`;
+  }).join('') : `<div class="empty">No notes uploaded yet — add your first set above.</div>`;
+
+  $$('#noteList [data-open]').forEach(b => b.addEventListener('click', () => navigate('note', { note: +b.dataset.open })));
+  $$('#noteList .unit-row').forEach(row => row.addEventListener('click', e => {
+    if (e.target.closest('button')) return;
+    navigate('note', { note: +row.dataset.nid });
+  }));
+  $$('#noteList [data-del]').forEach(b => b.addEventListener('click', async e => {
+    e.stopPropagation();
+    if (!confirm('Delete these notes and the study kit built from them?')) return;
+    await api('/api/notes/' + b.dataset.del, { method: 'DELETE' });
+    viewNotes();
+  }));
+
+  if (notes.some(n => n.gen_status === 'running')) setTimeout(() => {
+    if (state.view.name === 'notes') viewNotes();
+  }, 4000);
+}
+
+async function viewNote() {
+  const nid = state.view.note;
+  const g = await api('/api/notes/' + nid);
+  const n = g.note, kit = g.kit;
+
+  if (n.gen_status === 'running') {
+    $('#content').innerHTML = `
+      <div class="page-head">
+        <div class="eyebrow">Building study kit</div>
+        <h1>${esc(n.title)}</h1>
+        <p>Reading your notes and writing cards${n.engine === 'rules' ? '' : ' with the local tutor model — this can take a minute or two'}…</p>
+      </div>
+      <div class="card"><div class="loading">Working… ${n.words} words queued. Leave this page open.</div></div>`;
+    setTimeout(() => { if (state.view.name === 'note' && state.view.note === nid) viewNote(); }, 3000);
+    return;
+  }
+  if (n.gen_status === 'error') {
+    $('#content').innerHTML = `
+      <div class="page-head"><div class="eyebrow">Study kit</div><h1>${esc(n.title)}</h1></div>
+      <div class="card"><div class="empty">Generation failed: ${esc(n.gen_error || 'unknown error')}</div>
+      <div style="margin-top:14px;display:flex;gap:10px">
+        <button class="btn btn-accent" id="retryRules">Build instantly (offline rules)</button>
+        <button class="btn btn-ghost" id="retryAi">Try the AI tutor again</button>
+        <button class="btn btn-ghost" id="backNotes">Back</button>
+      </div></div>`;
+    $('#retryRules').addEventListener('click', () => regenerateNote(nid, 'rules'));
+    $('#retryAi').addEventListener('click', () => regenerateNote(nid, 'ai'));
+    $('#backNotes').addEventListener('click', () => navigate('notes'));
+    return;
+  }
+
+  const c = state.courses.find(x => x.code === n.course_code);
+  $('#content').innerHTML = `
+    <div class="page-head">
+      <div class="eyebrow">${c ? esc(c.short) + ' · ' : ''}${n.words} words${n.course_code ? ' · ' + esc(n.course_code) : ''}</div>
+      <h1>${esc(n.title)}</h1>
+      <p>${esc(engineLabel(n.gen_engine || n.engine))} built this in ${n.gen_ms ? (n.gen_ms / 1000).toFixed(1) + 's' : 'a moment'}.
+         ${n.gen_error ? esc(n.gen_error) : 'Everything here comes from the notes you uploaded.'}</p>
+    </div>
+    <div class="toolbar">
+      <div class="tabs" id="kitTabs">
+        <button class="tab active" data-tab="cards">Flashcards (${kit ? kit.cards.length : 0})</button>
+        <button class="tab" data-tab="exam">Practice exam (${kit ? kit.exam.length : 0})</button>
+      </div>
+      <div class="row" style="gap:8px">
+        <button class="btn btn-ghost btn-sm" id="regenBtn">Rebuild</button>
+        <button class="btn btn-ghost btn-sm" id="backBtn">All notes</button>
+      </div>
+    </div>
+    <div id="kitHost"></div>`;
+  $('#backBtn').addEventListener('click', () => navigate('notes'));
+  $('#regenBtn').addEventListener('click', () => {
+    const engine = prompt('Rebuild with which engine?\n  auto — AI if available\n  ai — AI only (slower, richer)\n  rules — instant offline', n.engine || 'auto');
+    if (engine) regenerateNote(nid, engine.trim().toLowerCase());
+  });
+
+  const host = $('#kitHost');
+  const show = tab => {
+    $$('#kitTabs .tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+    if (tab === 'cards') renderDeck(host, (kit && kit.cards) || [], n.title);
+    else renderNoteExam(host, nid, (kit && kit.exam) || []);
+  };
+  $$('#kitTabs .tab').forEach(b => b.addEventListener('click', () => show(b.dataset.tab)));
+  show('cards');
+}
+
+async function regenerateNote(nid, engine) {
+  if (!['auto', 'ai', 'rules'].includes(engine)) engine = 'auto';
+  await api(`/api/notes/${nid}/generate`, { method: 'POST', body: JSON.stringify({ engine }) });
+  viewNote();
+}
+
+function renderDeck(host, cards, title) {
+  if (!cards.length) { host.innerHTML = `<div class="empty">No flashcards in this set.</div>`; return; }
+  const st = { deck: cards, idx: 0, flipped: false };
+  const draw = () => {
+    const c = st.deck[st.idx];
+    host.innerHTML = `
+      <div class="fc-wrap">
+        <div class="fc ${st.flipped ? 'flipped' : ''}" id="fcEl">
+          <div class="fc-inner">
+            <div class="fc-face fc-front"><div class="fc-kicker">Prompt</div><div class="fc-text">${esc(c.front)}</div></div>
+            <div class="fc-face fc-back"><div class="fc-kicker">Answer</div><div class="fc-text small">${esc(c.back)}</div></div>
+          </div>
+        </div>
+        <div class="fc-controls">
+          <button class="btn btn-ghost btn-sm" id="fcPrev" ${st.idx === 0 ? 'disabled' : ''}>← Prev</button>
+          <button class="btn btn-primary btn-sm" id="fcFlip">Flip</button>
+          <button class="btn btn-ghost btn-sm" id="fcNext" ${st.idx === st.deck.length - 1 ? 'disabled' : ''}>Next →</button>
+          <span class="fc-counter">${st.idx + 1} / ${st.deck.length} ${c.level ? '· ' + lvlName(c.level) : ''}</span>
+        </div>
+      </div>`;
+    $('#fcEl', host).addEventListener('click', () => { st.flipped = !st.flipped; draw(); });
+    $('#fcFlip', host).addEventListener('click', () => { st.flipped = !st.flipped; draw(); });
+    const p = $('#fcPrev', host), nx = $('#fcNext', host);
+    if (p) p.addEventListener('click', () => { st.idx--; st.flipped = false; draw(); });
+    if (nx) nx.addEventListener('click', () => { st.idx++; st.flipped = false; draw(); });
+  };
+  draw();
+}
+
+function renderNoteExam(host, nid, exam) {
+  if (!exam.length) { host.innerHTML = `<div class="empty">No exam questions in this set.</div>`; return; }
+  host.innerHTML = `
+    <div class="row-between" style="margin-bottom:16px">
+      <div><strong>Practice exam</strong> <span class="muted">· ${exam.length} questions · generated from your notes · pass at 70%</span></div>
+    </div>
+    <form id="noteExamForm">
+      ${exam.map((q, i) => `
+        <div class="quiz-q" data-q="${i}">
+          <div class="qq-text">${lvlBadge(q.level || 2)} ${i + 1}. ${esc(q.q)}</div>
+          ${q.opts.map((o, j) => `<label class="opt"><input type="radio" name="q${i}" value="${j}" /> <span>${esc(o)}</span></label>`).join('')}
+        </div>`).join('')}
+      <button type="submit" class="btn btn-accent" id="neSubmit">Submit answers</button>
+    </form>`;
+  $$('.opt input', host).forEach(r => r.addEventListener('change', () => {
+    $$(`input[name="${r.name}"]`, host).forEach(x => x.closest('.opt').classList.toggle('sel', x.checked));
+  }));
+  $('#noteExamForm', host).addEventListener('submit', async e => {
+    e.preventDefault();
+    const answers = exam.map((_, i) => {
+      const sel = $(`input[name="q${i}"]:checked`, host);
+      return sel ? parseInt(sel.value, 10) : -1;
+    });
+    if (answers.includes(-1)) { alert('Answer every question before submitting.'); return; }
+    const btn = $('#neSubmit', host); btn.disabled = true; btn.textContent = 'Grading…';
+    const res = await api(`/api/notes/${nid}/exam`, { method: 'POST', body: JSON.stringify({ answers }) });
+    host.innerHTML = `
+      <div class="card stat-card" style="margin-bottom:20px">
+        <div class="big">${res.pct}%</div>
+        <div class="lbl">${res.score} of ${res.total} correct — ${res.passed ? 'passed' : 'keep going, pass is 70%'}</div>
+      </div>
+      ${exam.map((q, i) => {
+        const r = res.results[i];
+        return `<div class="quiz-q ${r.correct ? 'ok' : 'bad'}">
+          <div class="qq-text">${lvlBadge(q.level || 2)} ${i + 1}. ${esc(q.q)}</div>
+          ${q.opts.map((o, j) => `<div class="opt ${j === r.answer ? 'sel right' : (j === r.given && !r.correct ? 'sel wrong' : '')}">
+            <span>${esc(o)}</span></div>`).join('')}
+          <div class="qq-explain">${esc(r.explain || '')}</div>
+        </div>`;
+      }).join('')}
+      <button class="btn btn-ghost" id="neAgain">Retake</button>`;
+    $('#neAgain', host).addEventListener('click', () => renderNoteExam(host, nid, exam));
+  });
 }
 
 /* ============================================================ MODAL == */
