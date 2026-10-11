@@ -165,6 +165,57 @@ On this CPU-only box an 8B model needs minutes per generation, which is why the
 UI defaults to `rules` and the AI engines are opt-in. Tune with
 `NOTES_AI_TIMEOUT` (seconds) and `TUTOR_MODEL`.
 
+## Deployment (Railway + custom domain)
+
+Live at **https://app.collegegradelifter.com** — Railway project `gradeboost`,
+service `tutor-portal`, built from the `Dockerfile`, with a volume mounted at
+`/app/data` so the SQLite db survives redeploys.
+
+Deploy with the CLI:
+
+```bash
+railway up --detach        # from this directory, linked to the project
+railway logs               # uvicorn output / tracebacks
+```
+
+Environment: `OLLAMA_URL` / `TUTOR_MODEL` are unset in the cloud, so the AI
+engines are offline there and `auto` falls back to the offline rules engine —
+the Notes → Study Kit feature still works in full.
+
+### Adding a custom domain — Railway needs TWO record types
+
+`railway domain <name>` prints the required records. **Add both:**
+
+| Type  | Host                                | Value                        |
+|-------|-------------------------------------|------------------------------|
+| CNAME | the subdomain (`app`, `www`, …)     | `<hash>.up.railway.app`      |
+| TXT   | `_railway-verify.<subdomain>`       | `railway-verify=<hex token>` |
+
+The TXT is not optional. With only the CNAME in place the record shows
+`PROPAGATED` and the certificate sits at `VALIDATING_OWNERSHIP` forever, and
+Railway answers `404` on the custom domain even though DNS resolves. The token
+is masked in `railway domain status` output — read it via `railway api` with a
+`customDomain(id, projectId) { status { verificationToken } }` query.
+
+### Network Solutions DNS caveats
+
+- **No CNAME at the apex, no ALIAS/ANAME support.** Railway requires
+  CNAME-flattening or an ALIAS for a root domain, so a bare domain cannot be
+  pointed at Railway while NS runs the DNS. Use a subdomain (`app.`) instead, or
+  move DNS to a provider with CNAME flattening (Cloudflare) — the registration
+  can stay at NS.
+- **The hosting connection re-adds `A @` and `A www`.** Deleting them in the DNS
+  panel appears to work, but they come back, and a CNAME plus an A at the same
+  name is an invalid record set — resolvers then split between Railway and the
+  NS "Web Page Under Construction" parking page. Pick a hostname NS does not
+  manage (`app`) rather than fighting it.
+- The DNS panel's **Add Advanced DNS Record** flow only offers `@`, `www` and
+  **Other Host** — use Other Host for anything else, and note the dialog shows a
+  specific validation error (e.g. the A/CNAME conflict) that names the problem.
+- `railway domain status` flapping between `PROPAGATED` and `REQUIRES_UPDATE` is
+  just their checker sampling resolvers with mismatched caches; the authoritative
+  answer from `ns61.worldnic.com` is the one that matters.
+
 ## Editing the curriculum
 
 Everything the student sees comes from **`backend/content.py`**. Unit topics follow the
