@@ -1330,6 +1330,7 @@ async function viewNote() {
       <div class="tabs" id="kitTabs">
         <button class="tab active" data-tab="cards">Flashcards (${kit ? kit.cards.length : 0})</button>
         <button class="tab" data-tab="exam">Practice exam (${kit ? kit.exam.length : 0})</button>
+        <button class="tab" data-tab="ask">Ask about this material</button>
       </div>
       <div class="row" style="gap:8px">
         <button class="btn btn-ghost btn-sm" id="regenBtn">Rebuild</button>
@@ -1347,6 +1348,7 @@ async function viewNote() {
   const show = tab => {
     $$('#kitTabs .tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
     if (tab === 'cards') renderDeck(host, (kit && kit.cards) || [], n.title, nid);
+    else if (tab === 'ask') renderAsk(host, nid, n.title);
     else renderNoteExam(host, nid, (kit && kit.exam) || []);
   };
   $$('#kitTabs .tab').forEach(b => b.addEventListener('click', () => show(b.dataset.tab)));
@@ -1359,23 +1361,52 @@ async function regenerateNote(nid, engine) {
   viewNote();
 }
 
+/* Shuffle the questions AND the options, remapping the correct index so grading
+   still works. Returns copies — the stored kit is never mutated. */
+function shuffleDeck(cards) {
+  const out = cards.map(c => {
+    const opts = Array.isArray(c.opts) ? c.opts : null;
+    if (!opts || typeof c.answer !== 'number') return c;
+    const order = opts.map((_, i) => i);
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    return { ...c, opts: order.map(i => opts[i]), answer: order.indexOf(c.answer) };
+  });
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
 function renderDeck(host, cards, title, nid) {
   if (!cards.length) { host.innerHTML = `<div class="empty">No flashcards in this set.</div>`; return; }
   // Kits stored before the quiz fields existed have no options: keep the plain
   // flip card rather than showing an unanswerable question.
   if (!cards.some(c => Array.isArray(c.opts) && c.opts.length > 1)) return renderFlipDeck(host, cards, title);
 
+  // shuffled on every render, so the questions never come up in the same order
+  // twice and the correct option is not always in the same position
+  let deck = shuffleDeck(cards);
   let idx = 0, pick = null, revealed = false, answered = 0, correct = 0;
 
+  const reshuffle = () => {
+    deck = shuffleDeck(cards);
+    idx = 0; pick = null; revealed = false; answered = 0; correct = 0;
+    draw();
+  };
+
   const draw = () => {
-    const c = cards[idx];
+    const c = deck[idx];
     const opts = Array.isArray(c.opts) ? c.opts : [];
     const hasQ = opts.length > 1 && typeof c.answer === 'number';
     const pct = answered ? Math.round(100 * correct / answered) : 0;
     host.innerHTML = `
       <div class="deck-wrap">
         <div class="deck-head">
-          <span class="fc-counter">Card ${idx + 1} / ${cards.length}${c.level ? ' · ' + lvlName(c.level) : ''}</span>
+          <span class="fc-counter">Card ${idx + 1} / ${deck.length}${c.level ? ' · ' + lvlName(c.level) : ''}</span>
           <span class="muted">${answered ? `${correct}/${answered} correct · ${pct}%` : 'Choose an option, then press Answer'}</span>
         </div>
         <div class="quiz-q">
@@ -1395,7 +1426,8 @@ function renderDeck(host, cards, title, nid) {
         <div class="deck-actions">
           <button class="btn btn-ghost btn-sm" id="fcPrev" ${idx === 0 ? 'disabled' : ''}>← Prev</button>
           <button class="btn btn-primary btn-sm" id="fcAnswer" ${revealed ? 'disabled' : ''}>Answer</button>
-          <button class="btn btn-accent btn-sm" id="fcNext" ${idx === cards.length - 1 ? 'disabled' : ''}>Next →</button>
+          <button class="btn btn-accent btn-sm" id="fcNext" ${idx === deck.length - 1 ? 'disabled' : ''}>Next →</button>
+          <button class="btn btn-ghost btn-sm" id="fcShuffle" title="New random order">⤨ Shuffle</button>
         </div>
         ${revealed ? `
         <div class="why-box">
@@ -1410,8 +1442,10 @@ function renderDeck(host, cards, title, nid) {
       r.addEventListener('change', () => { pick = Number(r.value); }));
 
     const prev = $('#fcPrev', host), next = $('#fcNext', host), ans = $('#fcAnswer', host);
+    const shuf = $('#fcShuffle', host);
+    if (shuf) shuf.addEventListener('click', reshuffle);
     if (prev) prev.addEventListener('click', () => { if (idx > 0) { idx--; pick = null; revealed = false; draw(); } });
-    if (next) next.addEventListener('click', () => { if (idx < cards.length - 1) { idx++; pick = null; revealed = false; draw(); } });
+    if (next) next.addEventListener('click', () => { if (idx < deck.length - 1) { idx++; pick = null; revealed = false; draw(); } });
     if (ans) ans.addEventListener('click', () => {
       revealed = true;
       if (pick !== null) { answered++; if (pick === c.answer) correct++; }
@@ -1497,6 +1531,79 @@ function renderNoteExam(host, nid, exam) {
       <button class="btn btn-ghost" id="neAgain">Retake</button>`;
     $('#neAgain', host).addEventListener('click', () => renderNoteExam(host, nid, exam));
   });
+}
+
+/* ============================================== ASK ABOUT THE MATERIAL == */
+function renderAsk(host, nid, title) {
+  host.innerHTML = `
+    <div class="ask-wrap">
+      <div class="ask-note">Answers come only from <strong>${esc(title)}</strong> — nothing from
+        outside it. Every reply shows the passages it came from.</div>
+      <div class="ask-log" id="askLog"></div>
+      <form class="ask-form" id="askForm">
+        <input id="askInput" autocomplete="off"
+               placeholder="e.g. what is the time constant?   /   show me the circuit diagram" />
+        <button class="btn btn-primary btn-sm" type="submit" id="askSend">Ask</button>
+      </form>
+      <div class="ask-hint">Try “explain the charging curve”, “show me the diagram”,
+        “what happens after five time constants?”</div>
+    </div>`;
+
+  const log = $('#askLog', host);
+  const bubble = (role, html) => {
+    const d = document.createElement('div');
+    d.className = 'ask-msg ask-' + role;
+    d.innerHTML = html;
+    log.appendChild(d);
+    log.scrollTop = log.scrollHeight;
+    return d;
+  };
+  bubble('bot', `<div class="ask-text">Ask me anything about <strong>${esc(title)}</strong>.</div>`);
+
+  let answered = 0;
+  $('#askForm', host).addEventListener('submit', async e => {
+    e.preventDefault();
+    const input = $('#askInput', host);
+    const q = input.value.trim();
+    if (!q) return;
+    input.value = '';
+    bubble('user', `<div class="ask-text">${esc(q)}</div>`);
+    const pending = bubble('bot', `<div class="ask-text muted">reading your material…</div>`);
+    try {
+      const r = await api(`/api/notes/${nid}/ask`, { method: 'POST', body: JSON.stringify({ question: q }) });
+      // the "which engine" note is worth saying once, not on every answer
+      pending.innerHTML = askAnswerHtml(r, nid, answered === 0);
+    } catch (ex) {
+      pending.innerHTML = `<div class="ask-text">${esc(ex.message)}</div>`;
+    }
+    answered++;
+    log.scrollTop = log.scrollHeight;
+  });
+}
+
+function askAnswerHtml(r, nid, showEngine) {
+  const parts = [`<div class="ask-text">${esc(r.answer || '')}</div>`];
+  const withFig = (r.passages || []).filter(p => p.image);
+  if ((r.passages || []).length) {
+    parts.push('<div class="ask-src">' + r.passages.map(p => `
+      <div class="ask-passage">
+        ${p.image ? `<img class="ask-fig" loading="lazy" alt="Diagram from page ${p.page || ''}"
+                        src="${mediaUrl(nid, p.image)}" />` : ''}
+        <blockquote>${esc(p.text)}</blockquote>
+        ${p.page ? `<div class="ask-page">page ${p.page}</div>` : ''}
+      </div>`).join('') + '</div>');
+  }
+  // the material has figures but no matching sentence named one — show them anyway
+  if ((r.figures || []).length && !withFig.length) {
+    parts.push('<div class="ask-src">' + r.figures.map(f => `
+      <div class="ask-passage">
+        <img class="ask-fig" loading="lazy" alt="Figure on page ${f.page}"
+             src="${mediaUrl(nid, f.image)}" />
+        <div class="ask-page">figure on page ${f.page}</div>
+      </div>`).join('') + '</div>');
+  }
+  if (showEngine && r.fallback_reason) parts.push(`<div class="ask-why">${esc(r.fallback_reason)}</div>`);
+  return parts.join('');
 }
 
 /* ============================================================ MODAL == */

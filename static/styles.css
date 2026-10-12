@@ -344,6 +344,28 @@ small { font-size: 12.5px; }
             text-decoration: underline; text-underline-offset: 3px; }
 .link-btn:hover { color: var(--ink); }
 
+/* -------- ask about the uploaded material -------- */
+.ask-wrap { max-width: 860px; }
+.ask-note { font-size: 13.5px; color: var(--ink-3); margin-bottom: 14px; }
+.ask-log { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
+.ask-msg { padding: 14px 16px; border-radius: var(--radius-sm); font-size: 15px; line-height: 1.55; }
+.ask-bot { background: var(--bg-2); }
+.ask-user { background: var(--accent-soft); margin-left: auto; max-width: 80%; }
+.ask-text { white-space: pre-wrap; }
+.ask-text.muted { color: var(--ink-3); }
+.ask-src { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+.ask-passage { border-left: 3px solid var(--border); padding-left: 12px; }
+.ask-passage blockquote { margin: 0; font-size: 14.5px; color: var(--ink-2); line-height: 1.5; }
+.ask-page { margin-top: 5px; font-size: 12px; color: var(--ink-4); }
+.ask-fig { display: block; max-width: 100%; height: auto; margin: 0 0 10px;
+           border: 1px solid var(--border); border-radius: var(--radius-xs); }
+.ask-why { margin-top: 10px; font-size: 13px; color: var(--ink-3); }
+.ask-form { display: flex; gap: 8px; }
+.ask-form input { flex: 1; padding: 11px 14px; font-family: var(--body); font-size: 15px;
+                  border: 1px solid var(--border); border-radius: var(--radius-xs);
+                  background: var(--bg); color: var(--ink); }
+.ask-hint { margin-top: 10px; font-size: 12.5px; color: var(--ink-4); }
+
 /* diagram that belongs to the question being asked */
 .q-figure { margin: 0 0 16px; padding: 12px; text-align: center;
             border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); }

@@ -1296,6 +1296,11 @@ class ExamIn(BaseModel):
     answers: List[int]
 
 
+class AskIn(BaseModel):
+    question: str
+    engine: Optional[str] = "auto"      # auto | ai | search
+
+
 def _note_row(con, nid: int, user_id: int):
     return con.execute(
         "SELECT * FROM notes WHERE id=? AND user_id=?", (nid, user_id)
@@ -1303,17 +1308,19 @@ def _note_row(con, nid: int, user_id: int):
 
 
 def _save_media(nid: int, pages: List[str], pdf_images: dict) -> int:
-    """Persist a PDF's diagrams plus the page map that ties text to them.
+    """Persist a note's per-page text and any diagrams.
 
+    The page text is kept even when there are no diagrams: it is what lets a
+    question be answered from the page it came from and cited back to the student.
     Stored on disk rather than in the row so a deck of photos does not bloat the
     database or every kit payload. Returns how many images were written.
     """
-    if not pdf_images:
+    if not pages and not pdf_images:
         return 0
     d = MEDIA_DIR / str(nid)
     d.mkdir(parents=True, exist_ok=True)
     page_map: dict = {}
-    for pi, imgs in pdf_images.items():
+    for pi, imgs in (pdf_images or {}).items():
         for im in imgs:
             name = os.path.basename(im.get("name") or "")
             if not name:
@@ -1554,6 +1561,41 @@ def note_media(nid: int, name: str, t: Optional[str] = None,
     if not path.is_file():
         raise HTTPException(404, "No such image")
     return FileResponse(path)
+
+
+@app.post("/api/notes/{nid}/ask")
+def ask_note(nid: int, body: AskIn, user=Depends(current_user)):
+    """Answer a question about THIS upload, out of the upload alone.
+
+    The passages behind the answer come back with it, so the student can see
+    where it came from instead of taking the answer on trust.
+    """
+    q = (body.question or "").strip()
+    if len(q) < 3:
+        raise HTTPException(400, "Ask a question about the material.")
+    with db() as con:
+        row = _note_row(con, nid, user["id"])
+        if not row:
+            raise HTTPException(404, "Notes not found")
+        text = row["body"] or ""
+        title = row["title"] or "your notes"
+    pages, images = _load_media(nid)
+    engine = (body.engine or "auto").lower()
+
+    if engine in ("auto", "ai"):
+        ans = notes_engine.ask_notes_ai(q, text, title, OLLAMA_URL, TUTOR_MODEL,
+                                        45.0, pages, images)
+        if ans:
+            ans["note_id"] = nid
+            ans["fallback_reason"] = None
+            return ans
+        if engine == "ai":
+            raise HTTPException(503, "The local tutor model is not reachable right now.")
+    ans = notes_engine.answer_from_notes(q, text, title, pages, images)
+    ans["note_id"] = nid
+    ans["fallback_reason"] = None if engine == "search" else \
+        "The local model is unavailable, so this is a direct search of your material."
+    return ans
 
 
 @app.delete("/api/notes/{nid}")

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import re
+import math
 import random
 import base64
 import io
@@ -473,7 +474,7 @@ def _sentences(text: str) -> List[str]:
 
 def _key_token(sentence: str) -> Optional[str]:
     """Pick a memorable token to blank out: a long capitalised term or a number+unit."""
-    words = re.findall(r"[A-Za-z][A-Za-z\-]{4,}|-?\d+(?:\.\d+)?\s?[A-Za-z%]{1,6}", sentence)
+    words = re.findall(r"[A-Za-z][A-Za-z\-]{4,}|-?\d+(?:\.\d+)?\s?[A-Za-z%]+", sentence)
     cands = []
     for w in words:
         wl = w.strip()
@@ -934,3 +935,173 @@ def _attach_diagrams_and_exam_images(kit: Dict, pages, page_images) -> Dict:
                     q["images"] = c["images"]
                 break
     return kit
+
+
+# --------------------------------------------------------------------------- #
+# asking questions about the uploaded material
+# --------------------------------------------------------------------------- #
+
+ASK_STOP = set(STOPWORDS) | {
+    "what", "which", "who", "whom", "whose", "when", "where", "why", "how",
+    "does", "did", "doing", "is", "are", "was", "were", "can", "could", "should",
+    "would", "will", "explain", "describe", "tell", "give", "about", "mean",
+    "means", "meaning", "please", "help", "summary", "summarise", "summarize",
+    "material", "notes", "note", "uploaded", "question", "answer", "topic",
+}
+FIGURE_WORDS = {"diagram", "figure", "fig", "graph", "chart", "plot", "picture",
+                "image", "circuit", "curve", "sketch", "drawing", "shown"}
+
+
+def _ask_terms(s: str) -> set:
+    return {w for w in re.findall(r"[a-z][a-z\-]{2,}", (s or "").lower())
+            if w not in ASK_STOP}
+
+
+def search_notes(question: str, text: str, pages: Optional[List[str]] = None,
+                 page_images: Optional[Dict[int, List[str]]] = None,
+                 limit: int = 3) -> List[Dict]:
+    """The passages from the uploaded material that actually cover the question.
+
+    Weighted so a word that appears once (a real term) counts for more than a
+    word the material uses everywhere, and ranked so the best-covered passage
+    wins. This is the offline path and it quotes rather than paraphrases.
+    """
+    q = _ask_terms(question)
+    if not q:
+        return []
+    units: List[Tuple[str, Optional[int]]] = []
+    if pages:
+        for i, p in enumerate(pages):
+            for s in _sentences(p or ""):
+                units.append((s, i))
+    if not units:
+        for s in _sentences(text or ""):
+            units.append((s, None))
+    if not units:
+        return []
+
+    df: Dict[str, int] = {}
+    doc_terms = []
+    for s, _pi in units:
+        t = _ask_terms(s)
+        doc_terms.append(t)
+        for w in t:
+            df[w] = df.get(w, 0) + 1
+    n = max(1, len(units))
+    scored = []
+    for (s, pi), t in zip(units, doc_terms):
+        hits = q & t
+        if not hits:
+            continue
+        score = sum(math.log(1.0 + n / (1.0 + df.get(w, 0))) for w in hits)
+        score += 0.45 * len(hits)                      # breadth over the question
+        scored.append((score, s, pi))
+    if not scored:
+        return []
+    scored.sort(key=lambda x: -x[0])
+
+    wants_figure = bool(_ask_terms(question) & FIGURE_WORDS) or bool(FIGURE_WORDS & set(
+        re.findall(r"[a-z]+", (question or "").lower())))
+    out = []
+    for score, s, pi in scored[:limit]:
+        entry = {"text": s, "page": (pi + 1) if pi is not None else None, "score": round(score, 2)}
+        if page_images and pi is not None and page_images.get(pi):
+            names = page_images[pi]
+            entry["image"] = names[0]
+            entry["images"] = list(names)
+            entry["image_page"] = pi + 1
+        out.append(entry)
+    # a question that asks about a figure should lead with a passage that has one
+    if wants_figure:
+        out.sort(key=lambda e: 0 if e.get("image") else 1)
+    return out
+
+
+def _wants_figure(question: str) -> bool:
+    words = set(re.findall(r"[a-z]+", (question or "").lower()))
+    return bool(words & FIGURE_WORDS)
+
+
+def _figures_in(page_images: Optional[Dict[int, List[str]]]) -> List[Dict]:
+    out = []
+    for pi, names in sorted((page_images or {}).items()):
+        for name in names or []:
+            out.append({"image": name, "page": pi + 1})
+    return out
+
+
+def answer_from_notes(question: str, text: str, title: str = "your notes",
+                      pages: Optional[List[str]] = None,
+                      page_images: Optional[Dict[int, List[str]]] = None) -> Dict:
+    """Offline answer: quote the passages that cover the question and cite them."""
+    passages = search_notes(question, text, pages, page_images)
+    # a question about a figure deserves the figures even when no sentence in the
+    # material happens to contain the word "diagram"
+    figures = _figures_in(page_images) if _wants_figure(question) else []
+    has_figure_passage = any(p.get("image") for p in passages)
+    figures = [] if has_figure_passage else figures
+
+    if not passages and not figures:
+        return {
+            "answer": f"Nothing in “{title}” covers that. I only answer from the material "
+                      f"you uploaded — try rephrasing with a word that appears in it.",
+            "passages": [], "figures": [], "engine": "search",
+        }
+    if not passages:
+        pgs = ", ".join(f"page {f['page']}" for f in figures)
+        return {"answer": f"“{title}” has {len(figures)} figure(s) — {pgs}. "
+                          f"Nothing in the text names them, so ask about what the figure shows.",
+                "passages": [], "figures": figures, "engine": "search"}
+
+    where = ", ".join(f"page {p['page']}" for p in passages if p.get("page")) or "your notes"
+    lead = (f"{len(passages)} passage{'s' if len(passages) > 1 else ''} in “{title}” "
+            f"cover that ({where}):")
+    if figures:
+        lead += (f" The material also has {len(figures)} figure(s) — "
+                 + ", ".join(f"page {f['page']}" for f in figures) + ".")
+    return {"answer": lead, "passages": passages, "figures": figures, "engine": "search"}
+
+
+ASK_SYSTEM = """You are a tutor answering questions about ONE document the student
+uploaded. Use ONLY that document. Quote its wording where it helps.
+If the document does not cover the question, say so plainly and stop — never fill
+the gap with outside knowledge, and never invent formulas or numbers.
+The document may contain diagrams or figures that are NOT in the text you receive.
+Never state that the document has no diagram, figure, graph or chart; if you
+cannot see one, say only what its text says about it and stop.
+Answer in at most 120 words."""
+
+
+def ask_notes_ai(question: str, text: str, title: str, ollama_url: str, model: str,
+                 timeout: float = 45.0, pages=None, page_images=None) -> Optional[Dict]:
+    """Answer with the local model, grounded in the upload. None if unavailable."""
+    try:
+        import httpx
+        user = (f"Document title: {title}\n\nDOCUMENT:\n{text[:11000]}\n\n"
+                f"QUESTION: {question}\n\nAnswer only from the document above.")
+        payload = {"model": model,
+                   "messages": [{"role": "system", "content": ASK_SYSTEM},
+                                {"role": "user", "content": user}],
+                   "stream": False, "options": {"temperature": 0.15, "num_predict": 400}}
+        with httpx.Client(timeout=httpx.Timeout(timeout, connect=6.0)) as client:
+            r = client.post(f"{ollama_url}/api/chat", json=payload)
+            if r.status_code != 200:
+                return None
+            data = r.json()
+            content = ((data.get("message") or {}).get("content") or data.get("response") or "").strip()
+        if not content:
+            return None
+        passages = search_notes(question, text, pages, page_images)
+        # the model cannot see the figures, so it must never be the only word on
+        # whether they exist — state them alongside its answer
+        figures = [] if any(p.get("image") for p in passages) else (
+            _figures_in(page_images) if _wants_figure(question) else [])
+        if figures:
+            # lead with the figures, so this reads as context for the answer
+            # rather than contradicting it
+            content = ("(This material has " + f"{len(figures)} figure(s) — "
+                       + ", ".join(f"page {f['page']}" for f in figures)
+                       + " — shown with this answer.)\n\n" + content)
+        return {"answer": content, "passages": passages, "figures": figures, "engine": "ai"}
+    except Exception:
+        return None
