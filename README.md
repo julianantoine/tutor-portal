@@ -245,6 +245,32 @@ Accounts created before billing existed (the seeded `student`/`tutor`, any earli
 test accounts) have no `subscriber_email` and are grandfathered, so they are not
 locked out by this change.
 
+## Being found and read by AI assistants
+
+The public landing page is written to be machine-readable, because that is
+increasingly how a buyer finds a product:
+
+- **`static/llms.txt`** (served at `/llms.txt`) — what the product is, what each
+  feature does, the six default courses with codes and credits, the price, the
+  access model, and rules for agents (only `/` and `/api/plan` are public; do not
+  register, subscribe or start a demo unprompted). **When the offer changes,
+  change this file** — it is the summary an assistant is most likely to quote.
+- **`static/robots.txt`** — allows `GPTBot`, `OAI-SearchBot`, `ChatGPT-User`,
+  `ClaudeBot`, `anthropic-ai`, `PerplexityBot`, `Google-Extended`, `Applebot`,
+  `CCBot`, `meta-externalagent` and `cohere-ai` on the public pages and
+  disallows `/api/`.
+- **`static/sitemap.xml`** — the canonical URL.
+- **`index.html`** — meta description, canonical, Open Graph and Twitter tags,
+  plus JSON-LD: a `Product` with a recurring monthly `Offer`, and a `FAQPage`
+  answering whether courses are customisable, what it costs, whether you can try
+  it first, and whether you pay before signing up.
+- The **course list and the price are in the static HTML**, not painted by
+  JavaScript, so a crawler that does not run JS still sees them.
+  `renderAsideCourses()` only fills the list if that markup is missing.
+
+Nothing behind the login is exposed, and none of this changes what a signed-in
+student sees.
+
 ## Deployment (Railway + custom domain)
 
 Live at **https://app.collegegradelifter.com** — Railway project `gradeboost`,
