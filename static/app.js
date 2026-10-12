@@ -231,8 +231,10 @@ async function boot() {
 }
 
 function renderAsideCourses() {
-  // static list on the auth screen — the catalog lives in the backend, but the
-  // four course titles are fixed for this build, so list them without a call.
+  // The list is in the HTML so crawlers and AI assistants see it without running
+  // JavaScript; only fill it if that markup is missing.
+  const host = $('#asideCourses');
+  if (!host || host.children.length) return;
   const courses = [
     ['#52525b', 'Character, Career & Self Development', '2 cr · ethics, communication, career'],
     ['#71717a', 'Modeling and Design', '3 cr · design process, CAD, drawings'],
@@ -241,7 +243,7 @@ function renderAsideCourses() {
     ['#4b5563', 'Calculus II', '4 cr · integration, series, polar, ODEs'],
     ['#374151', 'Physics II (Electricity & Magnetism)', '4 cr · fields, circuits, magnetism'],
   ];
-  $('#asideCourses').innerHTML = courses.map(([c, t, s]) =>
+  host.innerHTML = courses.map(([c, t, s]) =>
     `<li><span class="dot" style="background:${c}"></span><div><div>${esc(t)}</div><div class="a-sub">${esc(s)}</div></div></li>`
   ).join('');
 }

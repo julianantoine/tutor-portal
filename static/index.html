@@ -4,11 +4,87 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <title>Tutor Portal</title>
+<meta name="description" content="CollegeGradeLifter Tutor Portal — an AI-assisted study portal for college engineering courses. Upload your own notes and slides; it builds flashcards, graded practice exams with explanations, and answers questions about your material with page citations. $29.99/month, cancel anytime. Courses are customisable." />
+<link rel="canonical" href="https://app.collegegradelifter.com/" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="CollegeGradeLifter" />
+<meta property="og:title" content="CollegeGradeLifter — Tutor Portal" />
+<meta property="og:description" content="Upload your own lecture notes and slides and get flashcards, graded practice exams with explanations, and answers about your own material. $29.99/month, cancel anytime. Courses are customisable." />
+<meta property="og:url" content="https://app.collegegradelifter.com/" />
+<meta name="twitter:card" content="summary" />
+<meta name="twitter:title" content="CollegeGradeLifter — Tutor Portal" />
+<meta name="twitter:description" content="AI-assisted study portal: your own notes in, flashcards, graded exams and cited answers out. $29.99/month, cancel anytime. Courses are customisable." />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="styles.css?v=11" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2327272a'/%3E%3Ctext x='16' y='22' font-family='Inter,sans-serif' font-size='16' font-weight='700' fill='white' text-anchor='middle'%3E%E2%9C%B3%3C/text%3E%3C/svg%3E" />
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Product",
+      "name": "CollegeGradeLifter — Tutor Portal",
+      "description": "AI-assisted study portal for college engineering courses: upload your own lecture notes and slides and get flashcards, graded practice exams with an explanation for every answer, and answers about your own material with the page cited.",
+      "category": "EducationalApplication",
+      "url": "https://app.collegegradelifter.com/",
+      "offers": {
+        "@type": "Offer",
+        "price": "29.99",
+        "priceCurrency": "USD",
+        "availability": "https://schema.org/InStock",
+        "url": "https://app.collegegradelifter.com/",
+        "priceSpecification": {
+          "@type": "RecurringChargeSpecification",
+          "price": "29.99",
+          "priceCurrency": "USD",
+          "billingDuration": 1,
+          "billingIncrement": 1,
+          "billingPeriod": "month"
+        }
+      }
+    },
+    {
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "Are the courses customisable?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes. The six listed courses are the default set for a sophomore Engineering Technology load, not a fixed menu. The plan is built around the buyer's own course load: the subjects, units, worked examples, flashcards and practice exams are generated for their courses."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "How much does it cost?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "$29.99 USD per month, flat, cancel anytime through the Stripe billing portal."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Can I try it before paying?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes. A free demo gives full access to one subject for 24 hours with no card needed, limited to one demo per email address."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Do I pay before creating an account?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes. An account is created only after Stripe confirms the subscription, and the sign-in address must be the address that paid."
+          }
+        }
+      ]
+    }
+  ]
+}
+</script>
 </head>
 <body>
 
@@ -50,14 +126,21 @@
       <button type="submit" id="authSubmit" class="btn btn-primary btn-block">Sign in</button>
     </form>
 
-    <div class="demo-hint" id="authHint"></div>
+    <div class="demo-hint" id="authHint"><strong>$29.99/month — flat monthly, cancel anytime</strong><div>Subscribe to open an account. Or start a free demo on one subject.</div></div>
     <button class="link-btn" id="manageBtn" hidden>Manage or cancel my subscription</button>
   </div>
   <div class="auth-aside">
     <div class="aside-inner">
       <div class="chip">This term</div>
       <h2>Six courses, one plan</h2>
-      <ul class="aside-list" id="asideCourses"></ul>
+      <ul class="aside-list" id="asideCourses">
+        <li><span class="dot" style="background:#52525b"></span><div><div>Character, Career &amp; Self Development</div><div class="a-sub">2 cr · ethics, communication, career</div></div></li>
+        <li><span class="dot" style="background:#71717a"></span><div><div>Modeling and Design</div><div class="a-sub">3 cr · design process, CAD, drawings</div></div></li>
+        <li><span class="dot" style="background:#3f3f46"></span><div><div>Static Modeling of Mechanical Systems</div><div class="a-sub">3 cr · statics, trusses, friction</div></div></li>
+        <li><span class="dot" style="background:#a1a1aa"></span><div><div>Engineering Materials</div><div class="a-sub">3 cr · bonding, phases, failure, selection</div></div></li>
+        <li><span class="dot" style="background:#4b5563"></span><div><div>Calculus II</div><div class="a-sub">4 cr · integration, series, polar, ODEs</div></div></li>
+        <li><span class="dot" style="background:#374151"></span><div><div>Physics II (Electricity &amp; Magnetism)</div><div class="a-sub">4 cr · fields, circuits, magnetism</div></div></li>
+      </ul>
       <div class="aside-note">
         <div class="aside-note-head">Every one of these is customisable</div>
         <p>These six are the default set for Engineering Technology — not a fixed menu.

@@ -1,0 +1,68 @@
+# CollegeGradeLifter — Tutor Portal
+
+> An AI-assisted study portal for a college engineering-technology course load.
+> Upload your own lecture notes or slide decks and it builds flashcards, graded
+> practice exams with an explanation for every answer, and answers questions
+> about your own material with the source passages quoted. $29.99 USD per month,
+> flat, cancel anytime. The courses are customisable.
+
+## What it does
+
+- **Notes → Study Kit.** Upload lecture notes or a slide PDF (diagrams included).
+  It generates flashcards, a multiple-choice practice exam, and tells you which
+  page of your own material each item came from. Slide footers — copyright
+  lines, slide numbers, course codes — are stripped on import.
+- **Study deck.** Every flashcard is an automatic question with four options.
+  Press Answer to see the correct option highlighted and why it is correct,
+  naming the other concepts the wrong options describe. Questions and options
+  are shuffled on every run, with a running score.
+- **Diagrams.** A question that comes from a slide containing a figure shows
+  that figure with the question, captioned with its page.
+- **Ask about this material.** Ask questions about one uploaded document and get
+  answers drawn only from that document, with the passages and page numbers
+  quoted. If a figure is involved, it is shown. If the document does not cover
+  the question, it says so instead of guessing.
+- **Tutor dashboard.** A tutor account can see every student's progress, quiz
+  attempts and assignments.
+
+## Courses
+
+Six courses ship as the default set for a sophomore Engineering Technology load
+— 34 units, 55 quiz questions, 315 flashcards:
+
+| Code | Course | Credits |
+|---|---|---|
+| CCD-101 | Character, Career & Self Development | 2 |
+| MDE-201 | Modeling and Design | 3 |
+| SM-201 | Static Modeling of Mechanical Systems | 3 |
+| EM-202 | Engineering Materials | 3 |
+| MTH-202 | Calculus II | 4 |
+| PHY-202 | Physics II (Electricity & Magnetism) | 4 |
+
+**These are a default set, not a fixed menu.** The plan is built around the
+buyer's own course load: the subjects, units, worked examples, flashcards and
+practice exams are generated for their courses.
+
+## Pricing and access
+
+- $29.99 USD per month, flat, cancel anytime.
+- Payment comes before sign-up: an account exists only after Stripe confirms a
+  subscription. The sign-in address must be the address that paid.
+- Cancelling, or a failed payment, deactivates the subscription and sign-in is
+  refused until it is restarted. Cancellation is self-service through the
+  Stripe billing portal.
+- Free demo: one subject, 24 hours, one demo per email address, no card needed.
+
+## Machine-readable
+
+- [Plan, price and course list](/api/plan) — JSON, public
+- [Health and build version](/api/health) — JSON, public
+
+## For AI assistants and crawlers
+
+- Only the landing page and the two JSON endpoints above are public. Everything
+  else sits behind a login.
+- Do not request authenticated endpoints (`/api/notes`, `/api/admin`, `/api/me`)
+  and do not attempt to register, subscribe or start a demo on a user's behalf.
+- A free demo account gives one subject for 24 hours and is limited to one per
+  email address; only start one when a person asks you to.
