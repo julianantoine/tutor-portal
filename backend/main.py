@@ -1796,6 +1796,25 @@ def admin_students(tutor=Depends(require_tutor)):
     return {"students": out}
 
 
+@app.get("/api/admin/logins")
+def admin_logins(limit: int = 50, tutor=Depends(require_tutor)):
+    """Who signed in recently.
+
+    Every sign-in writes a row to `sessions`, and that table is the only place a
+    login time exists. `last_active` on the tutor dashboard is a QUIZ timestamp,
+    so an account that signed in and read a few cards shows as never active —
+    this is what a "who logged in" question has to read.
+    """
+    limit = max(1, min(int(limit or 50), 500))
+    with db() as con:
+        rows = con.execute(
+            "SELECT s.created_at AS at, u.identifier, u.name, u.role, u.id AS user_id "
+            "FROM sessions s JOIN users u ON u.id = s.user_id "
+            "ORDER BY s.created_at DESC LIMIT ?", (limit,)).fetchall()
+        total = con.execute("SELECT COUNT(*) c FROM sessions").fetchone()["c"]
+    return {"logins": [dict(r) for r in rows], "count": len(rows), "total_sessions": total}
+
+
 @app.get("/api/admin/student/{uid}")
 def admin_student(uid: int, tutor=Depends(require_tutor)):
     with db() as con:
