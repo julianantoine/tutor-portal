@@ -231,6 +231,69 @@ failed payment flips `subscribers.status` and sign-in is refused with
 tolerance) before touching anything, and handles `checkout.session.completed`,
 `customer.subscription.updated|deleted` and `invoice.payment_failed`.
 
+### The paywall
+
+Every content route is gated. `/api/courses`, the course, flashcard, quiz and
+progress routes, the tutor chat, terms, assignments and notes all take
+`Depends(entitled_user)` instead of plain authentication, and answer
+**`402 Payment Required`** with a machine-readable body:
+
+```json
+{"detail": {"error": "subscription_required", "plan": "lapsed",
+            "message": "Your subscription is not active — reactivate it to get back in.",
+            "price": "29.99", "interval": "month", "can_reactivate": true,
+            "label": "Subscription inactive"}}
+```
+
+`/api/me`, `/api/logout`, `/api/plan`, `/api/subscribe` and `/api/billing/*` stay
+open on purpose: a locked-out account has to be able to read its own state, sign
+out, and pay. The client handles the 402 in one place (`api()` in `app.js`), so
+**any** gated call puts the paywall on screen — including a subscription that
+lapses while the user is already inside the app.
+
+`GET /api/notes/{id}/media/{name}` serves an `<img>`, which cannot send an
+Authorization header, so it checks entitlement itself. Without that, a locked-out
+account keeps reading its diagrams.
+
+`entitlement()` decides in this order — the order is the point:
+
+| # | plan | means |
+|---|---|---|
+| 1 | `comp` | identifier or paid address is in `COMP_EMAILS` |
+| 2 | `subscriber` | `subscriber_email` maps to an `active` row in `subscribers` |
+| 3 | `demo` | an unexpired `demo_until`, scoped to its one subject |
+| 4 | `grandfathered` | account created before `GRANDFATHER_BEFORE` (unset by default) |
+| — | `lapsed` / `demo_expired` / `free` | refused, with a route back to paying |
+
+**Never let a new paywall lock out the accounts that predate it.** That is what
+the comp list is for, and why it is checked first: the first deploy of billing
+otherwise evicts the owner's own logins along with every existing user. Enumerate
+the live accounts before shipping and name the real ones.
+
+Switches:
+
+- `PAYWALL_ENABLED=0` — opens the app for everyone. The kill switch.
+- `COMP_EMAILS` — comma-separated identifiers with full access (default
+  `tutor,andreandantoine@gmail.com`).
+- `GRANDFATHER_BEFORE` — an ISO timestamp; every account older than it keeps
+  access. Use it when the paywall ships to people who signed up while the app was
+  free, and clear it once they have been moved onto subscriptions.
+
+`POST /api/billing/restart` (authenticated) mints a Checkout Session for the
+account already signed in — the paywall's Reactivate button. It carries
+`metadata[user_id]`, so the paid address attaches to that account even when the
+sign-in identifier is not an email at all.
+
+Without it a lapsed subscriber is stuck in a dead end: sign-in refuses them
+(`402`) and `/api/subscribe` refuses them too (`409 already has an account`), so
+there is no way left to pay. Both ends were fixed — `/api/subscribe` now allows a
+re-subscribe when the stored row is not `active`, and `POST /api/checkout/status`
+flips the row to `active` on any confirmed payment rather than only the first one.
+
+`tests/paywall_guards.py` re-runs the whole guard table against a local server —
+locked, comped, demo scoping, an expired demo, a real subscription going
+`past_due` and back — with no Stripe calls and no money.
+
 ### The free demo
 
 `POST /api/demo` with an email and a subject code:
@@ -242,8 +305,8 @@ tolerance) before touching anything, and handles `checkout.session.completed`,
 * **runs out** — the session expires after `DEMO_HOURS` (24 by default).
 
 Accounts created before billing existed (the seeded `student`/`tutor`, any earlier
-test accounts) have no `subscriber_email` and are grandfathered, so they are not
-locked out by this change.
+test accounts) have no `subscriber_email` and are **not** protected by having one — the paywall below decides. Name them in
+`COMP_EMAILS`, or set `GRANDFATHER_BEFORE`, or they are refused like anyone else.
 
 ## Being found and read by AI assistants
 

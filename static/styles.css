@@ -344,6 +344,37 @@ small { font-size: 12.5px; }
             text-decoration: underline; text-underline-offset: 3px; }
 .link-btn:hover { color: var(--ink); }
 
+/* ============================== PAYWALL ============================== */
+/* the whole product sits behind the subscription, so this screen has to sell
+   itself rather than just say "no" */
+.auth-wrap[hidden] { display: none; }
+/* The paywall has no aside to fill the second column of .auth-wrap, so it is a
+   single centred column instead of a card with half the page blank beside it. */
+#paywallView { grid-template-columns: 1fr; justify-items: center; background: var(--bg-2); }
+.paywall-card { max-width: 560px; margin: 40px auto; padding: 48px;
+                background: var(--bg); border: 1px solid var(--border);
+                border-radius: var(--radius); box-shadow: var(--shadow-sm);
+                justify-content: flex-start; }
+.lock-badge { display: inline-flex; align-self: flex-start; align-items: center; gap: 8px;
+              margin-bottom: 14px;
+              padding: 6px 12px; border-radius: 999px; font-size: 12px; font-weight: 600;
+              letter-spacing: .05em; text-transform: uppercase;
+              color: var(--amber); background: var(--amber-soft); }
+.pw-list { list-style: none; margin: 24px 0 4px; padding: 0; display: grid; gap: 15px; }
+.pw-list li { display: flex; gap: 12px; align-items: flex-start; }
+.pw-list strong { font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.pw-list .a-sub { font-size: 12.5px; color: var(--ink-3); margin-top: 3px; line-height: 1.5; }
+.pw-ico { flex: 0 0 30px; height: 30px; display: grid; place-items: center;
+          border-radius: var(--radius-xs); background: var(--bg-3);
+          color: var(--ink-2); font-size: 14px; }
+.pw-price { display: flex; align-items: baseline; gap: 9px; margin: 24px 0 14px;
+            padding-top: 18px; border-top: 1px solid var(--border); }
+.pw-amount { font-family: var(--head); font-size: 34px; font-weight: 700;
+             letter-spacing: -.02em; color: var(--ink); }
+.pw-per { font-size: 14px; color: var(--ink-3); }
+.plan-pill { background: var(--green-soft); color: var(--green); }
+.plan-pill.demo { background: var(--accent-soft); color: var(--accent-ink); }
+
 /* the customisable-courses promise, where the buyer is deciding */
 .feature-pill { display: inline-block; margin: -6px 0 18px; padding: 7px 13px;
                 font-size: 13px; color: var(--ink-2); background: var(--bg-2);

@@ -19,6 +19,7 @@ const state = {
   courses: [],
   progress: {},
   summary: null,
+  plan: null,                // filled from /api/me: what this account may do
   view: { name: 'overview', code: null, unit: null, tab: 'learn' },
   chat: { sessionId: null, course: null, unit: null, streaming: false },
   flashcards: { deck: [], idx: 0, flipped: false },
@@ -33,6 +34,13 @@ async function api(path, opts = {}) {
   const txt = await res.text();
   let data = null;
   try { data = txt ? JSON.parse(txt) : null; } catch { data = { raw: txt }; }
+  // 402 means the server understood the request and wants paying. Handled here
+  // once, so EVERY gated call lands on the paywall — not just the ones we
+  // remembered to write a handler for.
+  if (res.status === 402 && data && data.detail && typeof data.detail === 'object') {
+    showPaywall(data.detail);
+    throw new Error(data.detail.message || 'A subscription is required.');
+  }
   if (!res.ok) throw new Error((data && (data.detail || data.error)) || `HTTP ${res.status}`);
   return data;
 }
@@ -207,25 +215,133 @@ async function handleCheckoutReturn() {
 
 function logout(silent) {
   if (state.token && !silent) api('/api/logout', { method: 'POST' }).catch(() => {});
-  state.token = null; state.user = null;
+  state.token = null; state.user = null; state.plan = null;
   localStorage.removeItem('tp_token');
-  $('#appView').hidden = true; $('#authView').hidden = false;
+  $('#appView').hidden = true; $('#authView').hidden = false; $('#paywallView').hidden = true;
   if (!silent) setAuthMode('login');
 }
 $('#logoutBtn').addEventListener('click', () => logout(false));
+
+/* ============================================================ PAYWALL == */
+const PLAN_TITLES = {
+  lapsed:       'Your subscription is not active.',
+  demo_expired: 'Your free demo has finished.',
+  free:         'A subscription is required.',
+};
+
+function pwErr(text) {
+  const el = $('#pwErr');
+  el.textContent = text || '';
+  el.hidden = !text;
+}
+
+/** The chip in the header: what this account is, and how long it has left. */
+function planChipText(plan) {
+  if (!plan || !plan.label) return '';
+  if (plan.plan === 'demo' && plan.until) {
+    const left = Math.max(0, Math.round((new Date(plan.until).getTime() - Date.now()) / 36e5));
+    return `Free demo · ${left}h left`;
+  }
+  return plan.label;
+}
+
+function showPaywall(info = {}) {
+  $('#appView').hidden = true;
+  $('#authView').hidden = true;
+  $('#paywallView').hidden = false;
+
+  const price = info.price || (planInfo && planInfo.price) || '29.99';
+  const interval = info.interval || (planInfo && planInfo.interval) || 'month';
+  $('#pwPrice').textContent = '$' + price;
+  $('#pwPer').textContent = '/ ' + interval;
+  $('#pwPlanLabel').textContent = info.label || 'Subscription required';
+  $('#pwTitle').textContent = PLAN_TITLES[info.plan] || 'A subscription is required.';
+  $('#pwMessage').textContent = info.message ||
+    'Subscribe to open the course material, the study kits and the AI tutor.';
+  // "Reactivate" is the honest verb for someone whose subscription lapsed
+  $('#pwSubscribe').textContent =
+    (info.can_reactivate ? 'Reactivate' : 'Subscribe') + ' — $' + price + '/' + interval;
+  $('#pwManage').hidden = !info.email;        // the portal needs a Stripe customer
+  $('#pwDemo').hidden = info.plan !== 'free'; // they have not had their demo yet
+  pwErr('');
+}
+
+async function loadMe() {
+  const me = await api('/api/me');
+  state.user = me.user;
+  state.plan = me.plan;
+  return me;
+}
+
+async function paywallSubscribe() {
+  const btn = $('#pwSubscribe');
+  btn.disabled = true;
+  pwErr('');
+  try {
+    const r = await api('/api/billing/restart', { method: 'POST' });
+    location.href = r.url;
+  } catch (ex) {
+    pwErr(ex.message);
+    btn.disabled = false;
+  }
+}
+
+async function paywallManage() {
+  const email = state.plan && state.plan.email;
+  if (!email) return;
+  pwErr('');
+  try {
+    const r = await api('/api/billing/portal', { method: 'POST', body: JSON.stringify({ email }) });
+    location.href = r.url;
+  } catch (ex) { pwErr(ex.message); }
+}
+
+$('#pwSubscribe').addEventListener('click', paywallSubscribe);
+$('#pwManage').addEventListener('click', paywallManage);
+$('#pwSignout').addEventListener('click', () => logout(false));
+$('#pwDemo').addEventListener('click', () => {
+  // the free taste: give up the session so they can enter an email for the demo
+  logout(true);
+  setAuthMode('demo');
+  $('#paywallView').hidden = true;
+  $('#authView').hidden = false;
+});
 
 /* =============================================================== BOOT == */
 async function boot() {
   renderAsideCourses();
   await loadPlan();
   if (!state.token) {
+    $('#paywallView').hidden = true;
     $('#authView').hidden = false;
     await handleCheckoutReturn();
     return;
   }
+  const q = new URLSearchParams(location.search);
+  // A subscription bought from inside the app comes back here. Confirm it with
+  // Stripe first, or the buyer stays locked out until a webhook happens to land.
+  const reactivated = q.get('reactivated');
+  if (reactivated) {
+    history.replaceState(null, '', '/');
+    try {
+      await api('/api/checkout/status', { method: 'POST',
+        body: JSON.stringify({ session_id: reactivated }) });
+    } catch { /* the /api/me check below is the real verdict */ }
+  }
   try {
     const me = await api('/api/me');
     state.user = me.user;
+    state.plan = me.plan;
+    if (me.plan && me.plan.entitled === false) {
+      const canceled = q.get('canceled');
+      if (canceled) history.replaceState(null, '', '/');
+      showPaywall(canceled
+        ? { ...me.plan, message: 'Payment cancelled — nothing was charged. '
+                                 + 'Subscribe whenever you are ready.' }
+        : me.plan);
+      return;
+    }
+    $('#paywallView').hidden = true;
     await enterApp();
   } catch { logout(true); }
 }
@@ -250,8 +366,15 @@ function renderAsideCourses() {
 
 async function enterApp() {
   $('#authView').hidden = true;
+  $('#paywallView').hidden = true;
   $('#appView').hidden = false;
+  // the header chip needs the plan; a fresh demo/login does not carry it yet
+  if (!state.plan) { try { await loadMe(); } catch { /* chip stays hidden */ } }
   $('#whoami').textContent = state.user.name || state.user.identifier;
+  const chip = $('#planPill');
+  chip.textContent = planChipText(state.plan);
+  chip.hidden = !chip.textContent;
+  chip.classList.toggle('demo', (state.plan || {}).plan === 'demo');
   const rp = $('#rolePill');
   rp.textContent = state.user.role;
   rp.classList.toggle('tutor', state.user.role === 'tutor');

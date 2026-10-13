@@ -17,7 +17,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="styles.css?v=11" />
+<link rel="stylesheet" href="styles.css?v=12" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2327272a'/%3E%3Ctext x='16' y='22' font-family='Inter,sans-serif' font-size='16' font-weight='700' fill='white' text-anchor='middle'%3E%E2%9C%B3%3C/text%3E%3C/svg%3E" />
 <script type="application/ld+json">
 {
@@ -162,6 +162,7 @@
     </div>
     <div class="topbar-right">
       <span class="tutor-status" id="tutorStatus" title="Local AI tutor">●</span>
+      <span class="pill plan-pill" id="planPill" hidden></span>
       <span class="whoami" id="whoami"></span>
       <span class="pill role-pill" id="rolePill">student</span>
       <button class="btn btn-ghost btn-sm" id="logoutBtn">Sign out</button>
@@ -198,6 +199,45 @@
   </div>
 </div>
 
+<!-- ============================ PAYWALL ============================ -->
+<!-- What a signed-in account sees when it is not entitled: the whole product is
+     behind the subscription, so this screen is the only thing to do. -->
+<div id="paywallView" class="auth-wrap" hidden>
+  <div class="auth-card paywall-card">
+    <div class="brand-row">
+      <div class="logo">✳</div>
+      <div>
+        <div class="brand-name">Tutor Portal</div>
+        <div class="brand-sub">Engineering Technology · Sophomore Plan</div>
+      </div>
+    </div>
+
+    <div class="lock-badge"><span aria-hidden="true">🔒</span> <span id="pwPlanLabel">Subscription required</span></div>
+    <h1 class="auth-title" id="pwTitle">A subscription is required.</h1>
+    <p class="auth-lede" id="pwMessage">Subscribe to open the course material, the study kits and the AI tutor.</p>
+
+    <ul class="pw-list">
+      <li><span class="pw-ico">✎</span><div><strong>Notes → Study Kit</strong>
+        <div class="a-sub">Upload your own slides and notes; get flashcards and a graded practice exam with a reason for every answer.</div></div></li>
+      <li><span class="pw-ico">✳</span><div><strong>AI tutor on your material</strong>
+        <div class="a-sub">Ask questions about your own upload and see the page the answer came from.</div></div></li>
+      <li><span class="pw-ico">▦</span><div><strong>Terms, assignments, mastery</strong>
+        <div class="a-sub">Plan the term and watch mastery per unit and per course.</div></div></li>
+    </ul>
+
+    <div class="pw-price"><span class="pw-amount" id="pwPrice">$29.99</span><span class="pw-per" id="pwPer">/ month</span></div>
+    <button class="btn btn-primary btn-block" id="pwSubscribe">Subscribe — $29.99/month</button>
+    <div id="pwErr" class="err" hidden></div>
+
+    <div class="demo-hint"><strong>Flat monthly, cancel anytime</strong>
+      <div>Payment is handled by Stripe. Cancel or change your card in the billing portal.</div></div>
+
+    <button class="link-btn" id="pwManage" hidden>Manage or cancel my subscription</button>
+    <button class="link-btn" id="pwDemo" hidden>Or start a free 24-hour demo on one subject</button>
+    <button class="link-btn" id="pwSignout">Sign out</button>
+  </div>
+</div>
+
 <!-- ============================ MODALS ============================ -->
 <div class="modal-overlay" id="modalOverlay">
   <div class="modal" id="modal">
@@ -209,6 +249,6 @@
   </div>
 </div>
 
-<script src="app.js?v=11"></script>
+<script src="app.js?v=12"></script>
 </body>
 </html>

@@ -74,6 +74,19 @@ PLAN_PRICE = os.environ.get("PLAN_PRICE", "29.99")
 PLAN_INTERVAL = os.environ.get("PLAN_INTERVAL", "month")
 DEMO_HOURS = int(os.environ.get("DEMO_HOURS", "24"))
 
+# ---- paywall -------------------------------------------------------------- #
+# The product is gated behind the subscription. Accounts named in COMP_EMAILS
+# keep full access (so the owner's own logins are never locked out of the app
+# they pay for); GRANDFATHER_BEFORE is the safe-rollout knob — set it to an ISO
+# timestamp and every account created before it stays in, which is what stops a
+# paywall from evicting users who signed up while the app was free.
+PAYWALL_ENABLED = os.environ.get("PAYWALL_ENABLED", "1").strip().lower() \
+    not in ("0", "false", "no", "off")
+COMP_EMAILS = {e.strip().lower() for e in
+               os.environ.get("COMP_EMAILS", "tutor,andreandantoine@gmail.com").split(",")
+               if e.strip()}
+GRANDFATHER_BEFORE = (os.environ.get("GRANDFATHER_BEFORE") or "").strip()
+
 
 @asynccontextmanager
 async def lifespan(app):
@@ -345,11 +358,6 @@ def current_user(authorization: Optional[str] = Header(None)):
     return dict(r)
 
 
-def require_tutor(user=Depends(current_user)):
-    if user["role"] != "tutor":
-        raise HTTPException(status_code=403, detail="Tutor access required")
-    return user
-
 
 # --------------------------------------------------------------------------- #
 # Billing — the customer pays BEFORE an account exists
@@ -450,6 +458,89 @@ def _require_course(user, code: str):
                                  "subscribe to unlock the rest.")
 
 
+def entitlement(user) -> dict:
+    """What this account may do right now, decided from our own database.
+
+    Order matters. A comped login beats everything; an active subscription beats
+    a demo; and only an account with no subscription record at all can be
+    grandfathered in. That last rule is what keeps a paywall from locking out the
+    accounts that existed before it — but it is deliberately the LAST rule, so a
+    lapsed subscriber is not rescued by it.
+    """
+    if not PAYWALL_ENABLED:
+        return {"entitled": True, "plan": "unmetered", "label": "Open (paywall off)"}
+
+    ident = (user.get("identifier") or "").strip().lower()
+    sub_email = (user.get("subscriber_email") or "").strip().lower()
+
+    if ident in COMP_EMAILS or (sub_email and sub_email in COMP_EMAILS):
+        return {"entitled": True, "plan": "comp", "label": "Full access"}
+
+    if sub_email:
+        with db() as con:
+            sub = con.execute("SELECT status FROM subscribers WHERE email=?",
+                              (sub_email,)).fetchone()
+        status = sub["status"] if sub else "missing"
+        if status == "active":
+            return {"entitled": True, "plan": "subscriber", "email": sub_email,
+                    "label": f"Subscribed · ${PLAN_PRICE}/{PLAN_INTERVAL}"}
+        return {"entitled": False, "plan": "lapsed", "status": status, "email": sub_email,
+                "can_reactivate": True,
+                "label": "Subscription inactive",
+                "reason": "Your subscription is not active — reactivate it to get back in."
+                          if status != "missing" else
+                          "There is no active subscription for this address — subscribe to "
+                          "get in."}
+
+    if user.get("demo_until"):
+        if str(user["demo_until"]) >= now_iso():
+            return {"entitled": True, "plan": "demo", "until": user["demo_until"],
+                    "label": "Free demo"}
+        return {"entitled": False, "plan": "demo_expired", "label": "Demo finished",
+                "can_reactivate": True,
+                "reason": "Your free demo has finished — subscribe to keep going."}
+
+    if GRANDFATHER_BEFORE and str(user.get("created_at") or "") < GRANDFATHER_BEFORE:
+        return {"entitled": True, "plan": "grandfathered", "label": "Full access"}
+
+    return {"entitled": False, "plan": "free", "label": "Not subscribed",
+            "reason": "This account has no subscription — subscribe to unlock the course "
+                      "material."}
+
+
+def entitled_user(user=Depends(current_user)):
+    """Identity plus entitlement — the dependency every content route takes.
+
+    402 is the honest status: the request was understood and the payer is the
+    problem, not the request. The detail carries what the paywall screen needs to
+    render itself, so the client never has to guess why it was refused.
+    """
+    ent = entitlement(user)
+    if not ent["entitled"]:
+        raise HTTPException(402, detail={
+            "error": "subscription_required",
+            "message": ent.get("reason") or "A subscription is required.",
+            "plan": ent.get("plan"),
+            # label + email travel too, so a call that trips the paywall mid-session
+            # renders the same screen as /api/me does on load
+            "label": ent.get("label"),
+            "email": ent.get("email"),
+            "status": ent.get("status"),
+            "price": PLAN_PRICE,
+            "interval": PLAN_INTERVAL,
+            "can_reactivate": bool(ent.get("can_reactivate")),
+        })
+    return user
+
+
+# Defined after entitled_user on purpose: the default is evaluated when the
+# function is defined, so referencing it earlier raises NameError on import.
+def require_tutor(user=Depends(entitled_user)):
+    if user["role"] != "tutor":
+        raise HTTPException(status_code=403, detail="Tutor access required")
+    return user
+
+
 @app.get("/api/plan")
 def plan():
     return {"price": PLAN_PRICE, "currency": "usd", "interval": PLAN_INTERVAL,
@@ -465,7 +556,7 @@ def subscribe(body: SubscribeIn):
     email = _norm_email(body.email)
     with db() as con:
         row = con.execute("SELECT * FROM subscribers WHERE email=?", (email,)).fetchone()
-    if row and row["claimed_by"]:
+    if row and row["claimed_by"] and row["status"] == "active":
         raise HTTPException(409, "That email already has an account — just sign in.")
     sess = _stripe("POST", "checkout/sessions", {
         "mode": "subscription",
@@ -493,10 +584,45 @@ def checkout_status(body: SessionIn):
         with db() as con:
             row = con.execute("SELECT * FROM subscribers WHERE email=?", (email,)).fetchone()
             claimed = bool(row and row["claimed_by"])
-            if paid and not claimed:
+            if paid:
+                # Flip on ANY confirmed payment, claimed or not. The old guard
+                # skipped claimed rows, which meant a renewal paid from the
+                # public page left an existing customer locked out whenever the
+                # webhook did not also arrive.
                 _upsert_subscriber(con, email, sess.get("customer"),
                                    sess.get("subscription"), "active")
     return {"paid": paid, "email": email, "claimed": claimed}
+
+
+@app.post("/api/billing/restart")
+def billing_restart(user=Depends(current_user)):
+    """Start a subscription for the account that is already signed in.
+
+    /api/subscribe is the logged-out path. This one is for the account that got
+    in while the app was free, or whose demo ran out, or whose subscription
+    lapsed while it still had a session — without it the paywall screen has no
+    way to take that person's money. The session carries the account id so the
+    paid address can be attached to this account even when the sign-in
+    identifier is not an email at all.
+    """
+    ident = (user.get("identifier") or "").strip().lower()
+    email = user.get("subscriber_email") or (ident if EMAIL_RE.match(ident) else "")
+    data = {
+        "mode": "subscription",
+        "line_items[0][price]": STRIPE_PRICE_ID,
+        "line_items[0][quantity]": 1,
+        "success_url": f"{SITE_URL}/?reactivated={{CHECKOUT_SESSION_ID}}",
+        "cancel_url": f"{SITE_URL}/?canceled=1",
+        "client_reference_id": str(user["id"]),
+        "metadata[user_id]": str(user["id"]),
+        "subscription_data[metadata][user_id]": str(user["id"]),
+        "branding_settings[display_name]": "CollegeGradeLifter",
+    }
+    if email:
+        data["customer_email"] = email
+        data["subscription_data[metadata][email]"] = email
+    sess = _stripe("POST", "checkout/sessions", data)
+    return {"url": sess["url"], "session_id": sess["id"]}
 
 
 @app.post("/api/demo")
@@ -578,6 +704,15 @@ async def billing_webhook(request: Request):
     with db() as con:
         if etype == "checkout.session.completed" and email:
             _upsert_subscriber(con, email, obj.get("customer"), obj.get("subscription"), "active")
+            # A subscription started from inside the app carries the account id,
+            # so attach the paid address to that account even when the sign-in
+            # identifier is not an email at all.
+            uid = (obj.get("metadata") or {}).get("user_id") or obj.get("client_reference_id")
+            if uid and str(uid).isdigit():
+                con.execute("UPDATE users SET subscriber_email=? WHERE id=?",
+                            (email, int(uid)))
+                con.execute("UPDATE subscribers SET claimed_by=COALESCE(claimed_by, ?) "
+                            "WHERE email=?", (int(uid), email))
         elif etype in ("customer.subscription.updated", "customer.subscription.deleted",
                        "invoice.payment_failed"):
             cust = obj.get("customer")
@@ -680,7 +815,10 @@ def public_user(u: dict) -> dict:
 @app.get("/api/me")
 def me(user=Depends(current_user)):
     prog = get_progress(user["id"])
-    return {"user": public_user(user), "progress": prog, "summary": progress_summary(prog)}
+    return {"user": public_user(user), "progress": prog, "summary": progress_summary(prog),
+            # the plan comes from here so a locked-out client can render the
+            # paywall without being allowed to fetch anything else
+            "plan": entitlement(user), "price": PLAN_PRICE, "interval": PLAN_INTERVAL}
 
 
 # ---------------------------------------------------------------------------
@@ -755,7 +893,7 @@ def upsert_progress(user_id, unit_id, mastery=None, quiz=False, passed=False, pr
 # ---------------------------------------------------------------------------
 
 @app.get("/api/courses")
-def courses(user=Depends(current_user)):
+def courses(user=Depends(entitled_user)):
     prog = get_progress(user["id"])
     scope = _course_scope(user)          # a demo account sees exactly one subject
     out = []
@@ -775,7 +913,7 @@ def courses(user=Depends(current_user)):
 
 
 @app.get("/api/course/{code}")
-def course_detail(code: str, user=Depends(current_user)):
+def course_detail(code: str, user=Depends(entitled_user)):
     c = content.course_by_code(code)
     if not c:
         raise HTTPException(404, "Course not found")
@@ -792,7 +930,7 @@ def course_detail(code: str, user=Depends(current_user)):
 
 
 @app.get("/api/flashcards/{code}")
-def flashcards(code: str, user=Depends(current_user)):
+def flashcards(code: str, user=Depends(entitled_user)):
     _require_course(user, code)
     cards = content.flashcards_for(code)
     if not cards:
@@ -801,7 +939,7 @@ def flashcards(code: str, user=Depends(current_user)):
 
 
 @app.get("/api/quiz/{code}/{unit_id}")
-def quiz(code: str, unit_id: str, user=Depends(current_user)):
+def quiz(code: str, unit_id: str, user=Depends(entitled_user)):
     _require_course(user, code)
     qs = content.quiz_for_unit(code, unit_id)
     if not qs:
@@ -814,7 +952,7 @@ def quiz(code: str, unit_id: str, user=Depends(current_user)):
 
 
 @app.post("/api/quiz/submit")
-def quiz_submit(body: QuizIn, user=Depends(current_user)):
+def quiz_submit(body: QuizIn, user=Depends(entitled_user)):
     _require_course(user, body.course_code)
     bank = content.quiz_for_unit(body.course_code, body.unit_id)
     if not bank:
@@ -844,13 +982,13 @@ def quiz_submit(body: QuizIn, user=Depends(current_user)):
 
 
 @app.get("/api/progress")
-def progress(user=Depends(current_user)):
+def progress(user=Depends(entitled_user)):
     prog = get_progress(user["id"])
     return {"progress": prog, "summary": progress_summary(prog)}
 
 
 @app.post("/api/progress")
-def set_progress(body: ProgressIn, user=Depends(current_user)):
+def set_progress(body: ProgressIn, user=Depends(entitled_user)):
     upsert_progress(user["id"], body.unit_id, mastery=max(0.0, min(100.0, body.mastery)))
     return {"ok": True, "progress": get_progress(user["id"])}
 
@@ -918,7 +1056,7 @@ async def ollama_stream(messages):
 
 
 @app.post("/api/tutor/chat")
-async def tutor_chat(body: ChatIn, user=Depends(current_user)):
+async def tutor_chat(body: ChatIn, user=Depends(entitled_user)):
     """Stream the tutor reply as Server-Sent Events."""
     msg = body.message.strip()
     if not msg:
@@ -980,7 +1118,7 @@ async def tutor_chat(body: ChatIn, user=Depends(current_user)):
 
 
 @app.get("/api/chat/sessions")
-def chat_sessions(user=Depends(current_user)):
+def chat_sessions(user=Depends(entitled_user)):
     with db() as con:
         rows = con.execute(
             "SELECT id, course_code, unit_id, title, created_at FROM chat_sessions "
@@ -990,7 +1128,7 @@ def chat_sessions(user=Depends(current_user)):
 
 
 @app.get("/api/chat/session/{sid}")
-def chat_session(sid: int, user=Depends(current_user)):
+def chat_session(sid: int, user=Depends(entitled_user)):
     with db() as con:
         s = con.execute("SELECT * FROM chat_sessions WHERE id=? AND user_id=?", (sid, user["id"])).fetchone()
         if not s:
@@ -1002,7 +1140,7 @@ def chat_session(sid: int, user=Depends(current_user)):
 
 
 @app.get("/api/tutor/status")
-def tutor_status(user=Depends(current_user)):
+def tutor_status(user=Depends(entitled_user)):
     """Report the tutor model and whether Ollama answers."""
     ok = False
     models = []
@@ -1048,7 +1186,7 @@ def _term_courses(con, term_id):
 
 
 @app.get("/api/terms")
-def list_terms(user=Depends(current_user)):
+def list_terms(user=Depends(entitled_user)):
     with db() as con:
         rows = con.execute(
             "SELECT * FROM terms WHERE user_id=? ORDER BY active DESC, id DESC", (user["id"],)
@@ -1062,7 +1200,7 @@ def list_terms(user=Depends(current_user)):
 
 
 @app.post("/api/terms")
-def create_term(body: TermIn, user=Depends(current_user)):
+def create_term(body: TermIn, user=Depends(entitled_user)):
     name = body.name.strip()
     if not name:
         raise HTTPException(400, "Term needs a name")
@@ -1083,7 +1221,7 @@ def create_term(body: TermIn, user=Depends(current_user)):
 
 
 @app.post("/api/terms/{tid}/activate")
-def activate_term(tid: int, user=Depends(current_user)):
+def activate_term(tid: int, user=Depends(entitled_user)):
     with db() as con:
         own = con.execute("SELECT id FROM terms WHERE id=? AND user_id=?", (tid, user["id"])).fetchone()
         if not own:
@@ -1094,7 +1232,7 @@ def activate_term(tid: int, user=Depends(current_user)):
 
 
 @app.delete("/api/terms/{tid}")
-def delete_term(tid: int, user=Depends(current_user)):
+def delete_term(tid: int, user=Depends(entitled_user)):
     with db() as con:
         own = con.execute("SELECT id FROM terms WHERE id=? AND user_id=?", (tid, user["id"])).fetchone()
         if not own:
@@ -1105,7 +1243,7 @@ def delete_term(tid: int, user=Depends(current_user)):
 
 
 @app.get("/api/terms/{tid}/courses")
-def term_courses(tid: int, user=Depends(current_user)):
+def term_courses(tid: int, user=Depends(entitled_user)):
     with db() as con:
         own = con.execute("SELECT * FROM terms WHERE id=? AND user_id=?", (tid, user["id"])).fetchone()
         if not own:
@@ -1115,7 +1253,7 @@ def term_courses(tid: int, user=Depends(current_user)):
 
 
 @app.post("/api/terms/{tid}/courses")
-def add_term_course(tid: int, body: TermCourseIn, user=Depends(current_user)):
+def add_term_course(tid: int, body: TermCourseIn, user=Depends(entitled_user)):
     code = body.code.strip().upper()
     title = body.title.strip()
     if not code or not title:
@@ -1136,7 +1274,7 @@ def add_term_course(tid: int, body: TermCourseIn, user=Depends(current_user)):
 
 
 @app.delete("/api/term-courses/{cid}")
-def delete_term_course(cid: int, user=Depends(current_user)):
+def delete_term_course(cid: int, user=Depends(entitled_user)):
     with db() as con:
         row = con.execute(
             "SELECT tc.id FROM term_courses tc JOIN terms t ON t.id = tc.term_id "
@@ -1149,7 +1287,7 @@ def delete_term_course(cid: int, user=Depends(current_user)):
 
 
 @app.get("/api/terms/{tid}/study-plan")
-def term_study_plan(tid: int, user=Depends(current_user)):
+def term_study_plan(tid: int, user=Depends(entitled_user)):
     """A progressive study plan across every course in the term, easy -> hard.
 
     Catalog courses contribute their authored units (already level-tagged);
@@ -1219,7 +1357,7 @@ def term_study_plan(tid: int, user=Depends(current_user)):
 # ---------------------------------------------------------------------------
 
 @app.get("/api/assignments")
-def assignments(user=Depends(current_user)):
+def assignments(user=Depends(entitled_user)):
     with db() as con:
         rows = con.execute(
             "SELECT * FROM assignments WHERE user_id=? ORDER BY done, "
@@ -1242,7 +1380,7 @@ def make_assignment(body: AssignmentIn, tutor=Depends(require_tutor)):
 
 
 @app.post("/api/assignments/{aid}/toggle")
-def toggle_assignment(aid: int, user=Depends(current_user)):
+def toggle_assignment(aid: int, user=Depends(entitled_user)):
     with db() as con:
         r = con.execute("SELECT * FROM assignments WHERE id=?", (aid,)).fetchone()
         if not r:
@@ -1391,7 +1529,7 @@ def _run_generation(nid: int, engine: str):
 
 
 @app.get("/api/notes")
-def list_notes(user=Depends(current_user)):
+def list_notes(user=Depends(entitled_user)):
     with db() as con:
         rows = con.execute(
             "SELECT id,title,course_code,unit_id,words,engine,gen_status,gen_engine,"
@@ -1417,7 +1555,7 @@ def list_notes(user=Depends(current_user)):
 
 
 @app.post("/api/notes")
-def create_note(body: NoteIn, user=Depends(current_user)):
+def create_note(body: NoteIn, user=Depends(entitled_user)):
     text = body.text or ""
     pages: List[str] = []
     pdf_images: dict = {}
@@ -1460,7 +1598,7 @@ def create_note(body: NoteIn, user=Depends(current_user)):
 
 
 @app.get("/api/notes/{nid}")
-def get_note(nid: int, user=Depends(current_user)):
+def get_note(nid: int, user=Depends(entitled_user)):
     with db() as con:
         row = _note_row(con, nid, user["id"])
         if not row:
@@ -1485,7 +1623,7 @@ def get_note(nid: int, user=Depends(current_user)):
 
 
 @app.post("/api/notes/{nid}/generate")
-def regenerate_note(nid: int, body: GenIn, user=Depends(current_user)):
+def regenerate_note(nid: int, body: GenIn, user=Depends(entitled_user)):
     with db() as con:
         row = _note_row(con, nid, user["id"])
         if not row:
@@ -1502,7 +1640,7 @@ def regenerate_note(nid: int, body: GenIn, user=Depends(current_user)):
 
 
 @app.post("/api/notes/{nid}/exam")
-def submit_note_exam(nid: int, body: ExamIn, user=Depends(current_user)):
+def submit_note_exam(nid: int, body: ExamIn, user=Depends(entitled_user)):
     """Grade the generated exam and log the attempt so the tutor sees it."""
     with db() as con:
         row = _note_row(con, nid, user["id"])
@@ -1555,8 +1693,16 @@ def note_media(nid: int, name: str, t: Optional[str] = None,
     with db() as con:
         s = con.execute("SELECT user_id FROM sessions WHERE token=?", (token,)).fetchone()
         n = con.execute("SELECT user_id FROM notes WHERE id=?", (nid,)).fetchone()
+        u = con.execute("SELECT * FROM users WHERE id=?",
+                        ((s["user_id"] if s else -1),)).fetchone()
     if not s or not n or s["user_id"] != n["user_id"]:
         raise HTTPException(403, "Not your note")
+    # An <img> cannot send an Authorization header, which is why the token comes
+    # in the query string — but that also means this route does not go through
+    # entitled_user, so the paywall has to be checked here or a locked-out
+    # account keeps reading its diagrams.
+    if u and not entitlement(dict(u))["entitled"]:
+        raise HTTPException(402, "A subscription is required.")
     path = MEDIA_DIR / str(nid) / os.path.basename(name)
     if not path.is_file():
         raise HTTPException(404, "No such image")
@@ -1564,7 +1710,7 @@ def note_media(nid: int, name: str, t: Optional[str] = None,
 
 
 @app.post("/api/notes/{nid}/ask")
-def ask_note(nid: int, body: AskIn, user=Depends(current_user)):
+def ask_note(nid: int, body: AskIn, user=Depends(entitled_user)):
     """Answer a question about THIS upload, out of the upload alone.
 
     The passages behind the answer come back with it, so the student can see
@@ -1599,7 +1745,7 @@ def ask_note(nid: int, body: AskIn, user=Depends(current_user)):
 
 
 @app.delete("/api/notes/{nid}")
-def delete_note(nid: int, user=Depends(current_user)):
+def delete_note(nid: int, user=Depends(entitled_user)):
     with db() as con:
         row = _note_row(con, nid, user["id"])
         if not row:
